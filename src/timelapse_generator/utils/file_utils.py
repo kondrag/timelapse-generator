@@ -40,7 +40,7 @@ def find_image_files(directory: Path, pattern: str = "*.jpg") -> List[Path]:
     if not image_files:
         raise ValueError(f"No images found in {directory}")
     else:
-        logger.info(f"Found {len(image_files)} images in {directory}")
+        print(f"Found {len(image_files)} images in {directory}")
 
     # Sort naturally based on filename
     image_files.sort(key=lambda p: natural_sort_key(p.name))
@@ -119,7 +119,7 @@ def validate_image_sequence(image_files: List[Path]) -> Tuple[List[Path], List[d
             })
 
     for error in errors:
-        logger.error(f"Invalid image: {error['file']} - {error['error']}")
+        print(f"Invalid image: {error['file']} - {error['error']}")
     return valid_files, errors
 
 
