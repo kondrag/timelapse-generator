@@ -1,0 +1,118 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "timelapse-generator"
+version = "0.1.0"
+description = "Generate timelapse videos from night sky images and upload to YouTube"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Timelapse Generator", email = "noreply@example.com"}
+]
+keywords = ["timelapse", "video", "youtube", "astrophotography", "noaa"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+dependencies = [
+    # Core video processing
+    "opencv-python>=4.8.0",
+    "ffmpeg-python>=0.2.0",
+    "pillow>=10.0.0",
+    "numpy>=1.24.0",
+
+    # Web scraping and API
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+
+    # YouTube API
+    "google-api-python-client>=2.100.0",
+    "google-auth>=2.25.0",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.2.0",
+
+    # CLI
+    "click>=8.1.0",
+
+    # Configuration and utilities
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1.0",
+    "tqdm>=4.66.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.3.0",
+]
+
+[project.scripts]
+timelapse = "timelapse_generator.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/example/timelapse-generator"
+Repository = "https://github.com/example/timelapse-generator"
+Issues = "https://github.com/example/timelapse-generator/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/timelapse_generator"]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=src/timelapse_generator --cov-report=term-missing"
