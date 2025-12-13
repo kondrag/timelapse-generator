@@ -118,6 +118,8 @@ def validate_image_sequence(image_files: List[Path]) -> Tuple[List[Path], List[d
                 "error": error_msg
             })
 
+    for error in errors:
+        logger.error(f"Invalid image: {error['file']} - {error['error']}")
     return valid_files, errors
 
 
