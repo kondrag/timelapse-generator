@@ -20,6 +20,26 @@ cleanup_old_dirs() {
     find $TIMELAPSE_DIR -type d -mtime +30 -print -exec rm -rf {} + >> $LOGFILE
 }
 
+generate_timelapse_ffmpeg() {
+    local QUALITY=$1
+    local RESOLUTION=$2
+    local INPUT_DIR=$3
+    local OUTPUT_FILENAME=$4
+    local OUTPUT_FILEPATH="${INPUT_DIR}/${OUTPUT_FILENAME}"
+
+    echo "$(date) - Creating timelapse video with ffmpeg..." >> $LOGFILE
+    #pushd "$PWD"
+    #cd "$INPUT_DIR"
+    nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" -c:v libx264 -threads 4 -preset veryfast -vf scale=${RESOLUTION/x/:} -pix_fmt yuv420p "$OUTPUT_FILEPATH"
+    RETVAL="${?}"
+    echo "$(date) - timelapse video creation return value: $RETVAL" >> $LOGFILE
+    #   popd
+
+    echo "${OUTPUT_FILEPATH}"
+
+    return $RETVAL
+}
+
 generate_timelapse() {
     local QUALITY=$1
     local RESOLUTION=$2
@@ -53,7 +73,7 @@ generate_timelapse() {
     cd "${INPUT_DIR}" || { echo "Failed to cd to ${INPUT_DIR}" >> $LOGFILE; exit 1; }
     
     echo "$(date) - Running timelapse generator from ${INPUT_DIR}" >> $LOGFILE
-    uv run --project "${PROJECT_DIR}" timelapse generate -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 . "${OUTPUT_FILENAME}" --yes --no-progress >> $LOGFILE 2>&1
+    uv run --project "${PROJECT_DIR}" timelapse generate --backend ffmpegcv -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 . "${OUTPUT_FILENAME}" --yes --no-progress >> $LOGFILE 2>&1
     RESULT=$?
 
     echo "${INPUT_DIR}/${OUTPUT_FILENAME}"
@@ -109,7 +129,7 @@ process_night() {
     local HIGH_RES_FILENAME="AuroraCam_${TODAY}_${HIGH_RES}.mp4"
     
     # Generate Low Res
-    local VIDEO_PATH_LOW=$(generate_timelapse "low" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
+    local VIDEO_PATH_LOW=$(generate_timelapse_ffmpeg "low" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
     local RETVAL_LOW=$?
     echo "$(date) VIDEO_PATH_LOW is $VIDEO_PATH_LOW" >> $LOGFILE
     echo "$(date) - Nighttime ${LOW_RES} video creation return value: $RETVAL_LOW" >> $LOGFILE
@@ -132,6 +152,8 @@ process_night() {
             echo "Thumbnail creation return value: $?" >> $LOGFILE 
         fi
     fi
+
+    exit 0
 
     # Generate High Res
     local VIDEO_PATH_HIGH=$(generate_timelapse "high" "${HIGH_RES}" "${PROCESS_DIR}" "${HIGH_RES_FILENAME}")
