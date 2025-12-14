@@ -421,7 +421,9 @@ class VideoGenerator:
         """
         try:
             image_files = find_image_files(input_dir)
+            logger.info(f"Found {len(image_files)} images")
             valid_images, _ = validate_image_sequence(image_files)
+            logger.info(f"Found {len(valid_images)} valid images")
 
             if not valid_images:
                 return {"error": "No valid images found"}
