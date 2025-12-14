@@ -113,7 +113,7 @@ class FFmpegCVBackend(VideoBackend):
 
         # Additional settings
         self.thread_count = kwargs.get('threads', 0)  # 0 = auto
-        self.min bitrate = kwargs.get('min_bitrate', None)
+        self.min_bitrate = kwargs.get('min_bitrate', None)
         self.max_bitrate = kwargs.get('max_bitrate', None)
 
         self._writer = None

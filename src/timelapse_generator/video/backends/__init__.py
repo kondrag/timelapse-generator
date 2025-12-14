@@ -7,7 +7,7 @@ OpenCV and FFmpegCV.
 """
 
 from .base import VideoBackend
-from .registry import BackendRegistry, create_backend
+from .registry import BackendRegistry, create_backend, create_best_backend, list_available_backends
 
 # Import and register backends
 try:
@@ -28,6 +28,8 @@ __all__ = [
     'VideoBackend',
     'BackendRegistry',
     'create_backend',
+    'create_best_backend',
+    'list_available_backends',
 ]
 
 # Add backend classes to __all__ if they were successfully imported
