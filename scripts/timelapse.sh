@@ -25,19 +25,24 @@ generate_timelapse() {
     local RESOLUTION=$2
     local INPUT_DIR=$3
     local OUTPUT_FILENAME=$4
+    echo "$(date) - generate_timelapse() called with: QUALITY=$QUALITY, RESOLUTION=$RESOLUTION, INPUT_DIR=$INPUT_DIR, OUTPUT_FILENAME=$OUTPUT_FILENAME" >> $LOGFILE
     
     echo "$(date) - Creating timelapse ${RESOLUTION} video..." >> $LOGFILE
     TIMELAPSE_GENERATOR_DIR="${SCRIPT_DIR}/../." 
     cd "${TIMELAPSE_GENERATOR_DIR}" || { echo "Failed to cd to ${TIMELAPSE_GENERATOR_DIR}" >> $LOGFILE; exit 1; }
     
-    uv run timelapse generate --progress -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 $INPUT_DIR "${INPUT_DIR}/${OUTPUT_FILENAME}" --yes
+    OUTPUT_FILE=${INPUT_DIR}/${OUTPUT_FILENAME}
+    echo "$(date) - Running timelapse generator with options: -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 $INPUT_DIR ${OUTPUT_FILE}" >> $LOGFILE
+    
+    uv run timelapse generate -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 $INPUT_DIR "${OUTPUT_FILE}" --yes >> $LOGFILE 2>&1
 
-    echo "${INPUT_DIR}/${OUTPUT_FILENAME}"
+    echo "${OUTPUT_FILE}"
 
     return $?
 }
 
 process_day() {
+    local SUBDIR="day"
     local PROCESS_DIR=${ARCHIVE_DIR}/${SUBDIR}
     local VIDEO_FILENAME="CloudCam_${TODAY}_${LOW_RES}.mp4"
     
@@ -78,6 +83,7 @@ process_day() {
 
 process_night() {
     cleanup_old_dirs
+    local SUBDIR="night"
     local PROCESS_DIR=${ARCHIVE_DIR}/${SUBDIR}
     local LOW_RES_FILENAME="AuroraCam_${TODAY}_${LOW_RES}.mp4"
     local HIGH_RES_FILENAME="AuroraCam_${TODAY}_${HIGH_RES}.mp4"
