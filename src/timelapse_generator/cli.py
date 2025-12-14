@@ -52,8 +52,9 @@ def cli(ctx, config, verbose, log_file):
 @click.option('--thumbnail', is_flag=True, help='Create thumbnail image from middle frame')
 @click.option('--progress/--no-progress', default=True, help='Show/hide progress meter')
 @click.option('--estimate-only', is_flag=True, help='Only estimate output, do not generate')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts')
 @click.pass_context
-def generate(ctx, input_dir, output_file, fps, quality, codec, bitrate, resolution, thumbnail, progress, estimate_only):
+def generate(ctx, input_dir, output_file, fps, quality, codec, bitrate, resolution, thumbnail, progress, estimate_only, yes):
     """Generate timelapse video from images."""
     try:
         # Use settings defaults if not specified
@@ -104,7 +105,7 @@ def generate(ctx, input_dir, output_file, fps, quality, codec, bitrate, resoluti
             return
 
         # Ask for confirmation
-        if not click.confirm("\nProceed with video generation?"):
+        if not yes and not click.confirm("\nProceed with video generation?"):
             click.echo("Video generation cancelled.")
             return
 
@@ -204,7 +205,8 @@ def check_kp(threshold, no_cache):
 @click.option('--dry-run', is_flag=True, help='Show metadata without uploading')
 @click.option('--kp-index', type=float, help='Kp index for metadata')
 @click.option('--location', type=str, help='Location for metadata')
-def upload(video_file, title, description, tags, privacy, dry_run, kp_index, location):
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts')
+def upload(video_file, title, description, tags, privacy, dry_run, kp_index, location, yes):
     """Upload video to YouTube."""
     try:
         if not settings.youtube.upload_enabled:
@@ -263,7 +265,7 @@ def upload(video_file, title, description, tags, privacy, dry_run, kp_index, loc
             return
 
         # Confirm upload
-        if not click.confirm("\nProceed with upload?"):
+        if not yes and not click.confirm("\nProceed with upload?"):
             click.echo("Upload cancelled.")
             return
 
@@ -309,8 +311,9 @@ def upload(video_file, title, description, tags, privacy, dry_run, kp_index, loc
 @click.option('--location', type=str, help='Location for metadata')
 @click.option('--thumbnail', is_flag=True, help='Create thumbnail image from middle frame')
 @click.option('--progress/--no-progress', default=True, help='Show/hide progress meter')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts')
 @click.pass_context
-def process(ctx, input_dir, output_file, fps, quality, kp_threshold, force_upload, location, thumbnail, progress):
+def process(ctx, input_dir, output_file, fps, quality, kp_threshold, force_upload, location, thumbnail, progress, yes):
     """Complete workflow: generate video and optionally upload based on Kp index."""
     try:
         kp_threshold = kp_threshold or settings.weather.kp_threshold
@@ -386,7 +389,7 @@ def process(ctx, input_dir, output_file, fps, quality, kp_threshold, force_uploa
             click.echo(f"Title: {metadata['title']}")
 
             # Confirm upload
-            if click.confirm("Upload to YouTube?"):
+            if yes or click.confirm("Upload to YouTube?"):
                 uploader = YouTubeUploader()
                 upload_result = uploader.upload_video_with_metadata(output_file, metadata)
                 click.echo(f"✅ Upload completed: {upload_result['video_url']}")

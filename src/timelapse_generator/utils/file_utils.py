@@ -58,10 +58,8 @@ def validate_image(image_path: Path) -> Tuple[bool, Optional[str]]:
     """
     try:
         with Image.open(image_path) as img:
-            # Try to load the image data
             img.verify()
 
-        # Reopen for size info after verify()
         with Image.open(image_path) as img:
             if img.size[0] < 1 or img.size[1] < 1:
                 return False, f"Invalid image dimensions: {img.size}"
@@ -84,7 +82,7 @@ def get_image_info(image_path: Path) -> dict:
         with Image.open(image_path) as img:
             return {
                 "path": str(image_path),
-                "size": img.size,  # (width, height)
+                "size": img.size,
                 "mode": img.mode,
                 "format": img.format,
                 "file_size": image_path.stat().st_size

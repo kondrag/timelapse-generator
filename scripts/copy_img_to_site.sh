@@ -16,7 +16,6 @@ FTP_DIR="/srv/ftp/$CAMERA_NAME"
 WEEWX_DIR="/tmp/weewx"
 SITE_DIR="$WEEWX_DIR/$SITE_NAME"
 
-mkdir -p $SITE_DIR
 cd $FTP_DIR
 latest=$(ls -t *.jpg | head -n 2 | tail -n 1)
 
