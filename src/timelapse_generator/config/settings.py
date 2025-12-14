@@ -105,10 +105,9 @@ class Settings(BaseModel):
             config_path = Path("config.yaml")
 
         if not config_path.exists():
-            # Create default config file
-            settings = cls()
-            settings.save_to_file(config_path)
-            return settings
+            # Return default settings if file doesn't exist
+            # Do not auto-create file to avoid permission errors
+            return cls()
 
         with open(config_path, 'r') as f:
             config_data = yaml.safe_load(f)
@@ -143,6 +142,10 @@ class Settings(BaseModel):
         """Load settings from file and environment variables."""
         # Load environment variables from .env file if it exists
         load_dotenv()
+
+        # Check for config path in environment variable if not provided
+        if config_path is None and os.getenv("TIMELAPSE_CONFIG"):
+            config_path = Path(os.getenv("TIMELAPSE_CONFIG"))
 
         settings = cls.from_file(config_path)
 

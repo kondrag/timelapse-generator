@@ -5,7 +5,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 source "${SCRIPT_DIR}/common_env.sh"
 
 # Resolution settings
-LOW_RES="720x404"
+LOW_RES="640x360"
 HIGH_RES="2560x1440"
 
 # Setup logging and path
@@ -28,17 +28,37 @@ generate_timelapse() {
     echo "$(date) - generate_timelapse() called with: QUALITY=$QUALITY, RESOLUTION=$RESOLUTION, INPUT_DIR=$INPUT_DIR, OUTPUT_FILENAME=$OUTPUT_FILENAME" >> $LOGFILE
     
     echo "$(date) - Creating timelapse ${RESOLUTION} video..." >> $LOGFILE
-    TIMELAPSE_GENERATOR_DIR="${SCRIPT_DIR}/../." 
-    cd "${TIMELAPSE_GENERATOR_DIR}" || { echo "Failed to cd to ${TIMELAPSE_GENERATOR_DIR}" >> $LOGFILE; exit 1; }
+    TIMELAPSE_GENERATOR_DIR="${SCRIPT_DIR}/../."
+    # We cd to the input dir so the output filename is relative. This is a workaround for an issue where
+    # the timelapse generator fails when using absolute paths for the output file.
+    cd "${INPUT_DIR}" || { echo "Failed to cd to ${INPUT_DIR}" >> $LOGFILE; exit 1; }
     
-    OUTPUT_FILE=${INPUT_DIR}/${OUTPUT_FILENAME}
-    echo "$(date) - Running timelapse generator with options: -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 $INPUT_DIR ${OUTPUT_FILE}" >> $LOGFILE
+    # We need to run uv from the project dir, so we use the absolute path to uv/project if needed,
+    # or better, just rely on uv finding the project. But wait, TIMELAPSE_GENERATOR_DIR is where the project is.
+    # So we should cd to TIMELAPSE_GENERATOR_DIR to run uv, but then the output file path is relative to THAT?
+    # The user says "works when output is relative filename".
+    # If we run from TIMELAPSE_GENERATOR_DIR, then relative path "OUTPUT_FILENAME" would put it in likely the wrong place unless we use full path.
+    # But full path fails.
+    # So we must run FROM the directory where we want the file to be, OR passed a relative path like "data/output.mp4".
     
-    uv run timelapse generate -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 $INPUT_DIR "${OUTPUT_FILE}" --yes >> $LOGFILE 2>&1
+    # Strategy:
+    # 1. cd to the directory where we want output (INPUT_DIR, since OUTPUT_FILE is inside it)
+    # 2. Run uv run --project <PROJECT_DIR> ... with just filename.
+    
+    PROJECT_DIR=$(readlink -f "${TIMELAPSE_GENERATOR_DIR}")
+    
+    # Export config path so the app finds it even when running from data dir
+    export TIMELAPSE_CONFIG="${PROJECT_DIR}/config.yaml"
+    
+    cd "${INPUT_DIR}" || { echo "Failed to cd to ${INPUT_DIR}" >> $LOGFILE; exit 1; }
+    
+    echo "$(date) - Running timelapse generator from ${INPUT_DIR}" >> $LOGFILE
+    uv run --project "${PROJECT_DIR}" timelapse generate -q ${QUALITY} --resolution ${RESOLUTION} --fps 60 . "${OUTPUT_FILENAME}" --yes --no-progress >> $LOGFILE 2>&1
+    RESULT=$?
 
-    echo "${OUTPUT_FILE}"
+    echo "${INPUT_DIR}/${OUTPUT_FILENAME}"
 
-    return $?
+    return $RESULT
 }
 
 process_day() {
@@ -47,7 +67,7 @@ process_day() {
     local VIDEO_FILENAME="CloudCam_${TODAY}_${LOW_RES}.mp4"
     
     # Generate Low Res Video
-    local VIDEO_PATH=$(generate_timelapse "medium" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
+    local VIDEO_PATH=$(generate_timelapse "low" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
     local RETVAL=$?
     echo "$(date) VIDEO_PATH is $VIDEO_PATH" >> $LOGFILE
     echo "$(date) timelapse video creation return value: $RETVAL" >> $LOGFILE
@@ -89,11 +109,10 @@ process_night() {
     local HIGH_RES_FILENAME="AuroraCam_${TODAY}_${HIGH_RES}.mp4"
     
     # Generate Low Res
-    local VIDEO_PATH_LOW=$(generate_timelapse "medium" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
+    local VIDEO_PATH_LOW=$(generate_timelapse "low" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
     local RETVAL_LOW=$?
-    echo "$(date) VIDEO_PATH is $VIDEO_PATH" >> $LOGFILE
+    echo "$(date) VIDEO_PATH_LOW is $VIDEO_PATH_LOW" >> $LOGFILE
     echo "$(date) - Nighttime ${LOW_RES} video creation return value: $RETVAL_LOW" >> $LOGFILE
-    exit 0
 
     echo "Finding midnight thumbnail image..." >> $LOGFILE
     local THUMBNAIL=$(ls ${PROCESS_DIR}/AuroraCam_00_$(date +%Y%m%d)*.jpg 2>/dev/null | sort | head -1)
@@ -117,13 +136,14 @@ process_night() {
     # Generate High Res
     local VIDEO_PATH_HIGH=$(generate_timelapse "high" "${HIGH_RES}" "${PROCESS_DIR}" "${HIGH_RES_FILENAME}")
     local RETVAL_HIGH=$?
+    echo "$(date) VIDEO_PATH_HIGH is $VIDEO_PATH_HIGH" >> $LOGFILE
     
     local RETVAL="${RETVAL_LOW}${RETVAL_HIGH}"
     echo "Timelapse generation return values: $RETVAL" >> $LOGFILE
     echo "$(date) - Nighttime timelapse videos created successfully." >> $LOGFILE
     # Files are in /opt/timelapse-generator
     ls -al ${PROCESS_DIR}/*.mp4 >> $LOGFILE
-    echo "$(date) - Moving videos to archive dir $ARCHIVE_DIR" >> $LOGFILE
+    echo "$(date) - Moving ${VIDEO_PATH_LOW} and ${VIDEO_PATH_HIGH} to archive dir $ARCHIVE_DIR" >> $LOGFILE
     mv -v ${VIDEO_PATH_LOW} ${VIDEO_PATH_HIGH} $ARCHIVE_DIR >> $LOGFILE
 
     echo "Removing processing dir $PROCESS_DIR" >> $LOGFILE

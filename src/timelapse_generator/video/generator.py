@@ -57,7 +57,7 @@ class VideoGenerator:
             custom_bitrate=bitrate
         )
 
-        logger.info(f"Video generator initialized: fps={fps}, quality={quality}, progress={show_progress}")
+        logger.info(f"Video generator initialized: fps={fps}, quality={quality}, codec={codec}, bitrate={bitrate}, resolution={resolution}, show_progress={show_progress}")
 
     def generate_video(
         self,
@@ -134,7 +134,7 @@ class VideoGenerator:
         )
 
         if not video_writer.isOpened():
-            logger.error("Failed to initialize video writer")
+            logger.error(f"Failed to initialize video writer for {output_path}")
             raise RuntimeError("Failed to initialize video writer")
 
         try:
