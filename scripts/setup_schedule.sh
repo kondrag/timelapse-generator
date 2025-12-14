@@ -11,4 +11,3 @@ echo "Dusk is $DUSK"
 
 at $DAWN < ${SCRIPT_DIR}/move_ftp_images.sh night
 at $DUSK < ${SCRIPT_DIR}/move_ftp_images.sh day
-
