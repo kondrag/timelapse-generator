@@ -21,7 +21,7 @@ cleanup_old_dirs() {
 }
 
 generate_timelapse_ffmpeg() {
-    local QUALITY=$1
+    local PRESET=$1
     local RESOLUTION=$2
     local INPUT_DIR=$3
     local OUTPUT_FILENAME=$4
@@ -30,7 +30,7 @@ generate_timelapse_ffmpeg() {
     echo "$(date) - Creating timelapse video with ffmpeg..." >> $LOGFILE
     #pushd "$PWD"
     #cd "$INPUT_DIR"
-    nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" -c:v libx264 -threads 4 -preset veryfast -vf scale=${RESOLUTION/x/:} -pix_fmt yuv420p "$OUTPUT_FILEPATH"
+    nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" -c:v libx264 -threads 4 -preset ${PRESET} -vf scale=${RESOLUTION/x/:} -pix_fmt yuv420p "$OUTPUT_FILEPATH"
     RETVAL="${?}"
     echo "$(date) - timelapse video creation return value: $RETVAL" >> $LOGFILE
     #   popd
@@ -87,7 +87,7 @@ process_day() {
     local VIDEO_FILENAME="CloudCam_${TODAY}_${LOW_RES}.mp4"
     
     # Generate Low Res Video
-    local VIDEO_PATH=$(generate_timelapse "low" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
+    local VIDEO_PATH=$(generate_timelapse_ffmpeg "veryfast" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
     local RETVAL=$?
     echo "$(date) VIDEO_PATH is $VIDEO_PATH" >> $LOGFILE
     echo "$(date) timelapse video creation return value: $RETVAL" >> $LOGFILE
@@ -153,10 +153,8 @@ process_night() {
         fi
     fi
 
-    exit 0
-
     # Generate High Res
-    local VIDEO_PATH_HIGH=$(generate_timelapse "high" "${HIGH_RES}" "${PROCESS_DIR}" "${HIGH_RES_FILENAME}")
+    local VIDEO_PATH_HIGH=$(generate_timelapse_ffmpeg "medium" "${HIGH_RES}" "${PROCESS_DIR}" "${HIGH_RES_FILENAME}")
     local RETVAL_HIGH=$?
     echo "$(date) VIDEO_PATH_HIGH is $VIDEO_PATH_HIGH" >> $LOGFILE
     
