@@ -12,6 +12,7 @@ A Python command-line application that creates timelapse videos from night sky i
 - ⚙️ **Configurable**: Flexible settings for quality, resolution, and output
 - 🎯 **Smart Metadata**: Templates that incorporate Kp index and other data
 - 📝 **Logging**: Comprehensive logging with configurable levels
+- 🚀 **Multiple Video Backends**: Support for OpenCV and FFmpegCV with hardware acceleration
 
 ## Installation
 
@@ -45,8 +46,14 @@ cd timelapse_generator
 # Install with UV
 uv sync
 
+# Install with FFmpegCV support (recommended for better performance)
+uv sync --extra ffmpegcv
+
 # Install development dependencies (optional)
 uv sync --dev
+
+# Install everything (FFmpegCV + dev dependencies)
+uv sync --extra all
 ```
 
 ## Quick Start
@@ -121,10 +128,13 @@ Create a `config.yaml` file:
 video:
   fps: 30
   quality: "medium"
+  backend: "auto"  # auto, opencv, ffmpegcv
   codec: "mp4v"
   output_path: "./output"
   bitrate: "5M"
   resolution: [1920, 1080]
+  auto_select_backend: true
+  fallback_enabled: true
 
 weather:
   noaa_url: "https://www.swpc.noaa.gov/products/solar-and-geophysical-activity-summary"
@@ -166,6 +176,98 @@ cp ~/Downloads/client_secret_*.json youtube_credentials.json
 timelapse upload --dry-run your_video.mp4
 ```
 
+## Video Backends
+
+The timelapse generator supports multiple video encoding backends for different performance and quality needs.
+
+### Available Backends
+
+#### OpenCV (Default)
+- Always available with basic installation
+- Software-based encoding
+- Good compatibility
+- Supported codecs: MP4V, MJPG, XVID, X264
+
+#### FFmpegCV (Recommended)
+- Hardware acceleration support (NVIDIA NVENC, Intel QSV, AMD AMF)
+- Better performance and quality
+- Professional-grade encoding options
+- Supported codecs: H.264, H.265, VP9, MPEG4
+- Requires installation: `uv sync --extra ffmpegcv`
+
+### Backend Selection
+
+```bash
+# Auto-select best available backend (default)
+timelapse generate images/ output.mp4
+
+# Explicitly choose a backend
+timelapse generate images/ output.mp4 --backend opencv
+timelapse generate images/ output.mp4 --backend ffmpegcv
+
+# Let the system choose automatically
+timelapse generate images/ output.mp4 --backend auto
+```
+
+### Hardware Acceleration with FFmpegCV
+
+FFmpegCV automatically detects and uses available hardware acceleration:
+
+- **NVIDIA GPUs**: Uses NVENC for H.264/H.265 encoding
+- **Intel CPUs**: Uses Quick Sync Video (QSV) for hardware encoding
+- **AMD GPUs**: Uses AMF for hardware encoding
+- **Software**: Falls back to libx264/libx265 for maximum compatibility
+
+### Check Backend Information
+
+```bash
+# Show available backends and hardware capabilities
+timelapse backend-info
+```
+
+Example output:
+```
+🎥 Video Backend Information
+
+Backend: ffmpegcv
+  Status: ✅ Available
+  Priority: 90
+  Supported Codecs: libx264, libx265, h264_nvenc, hevc_nvenc, h264_qsv, hevc_qsv
+  Supports GPU: true
+  Pixel Format: rgb
+  Hardware Acceleration:
+    NVIDIA NVENC: Available
+    Intel QSV: Available
+    AMD AMF: Not Available
+
+Backend: opencv
+  Status: ✅ Available
+  Priority: 100
+  Supported Codecs: mp4v, mjpa, xvid, x264
+  Supports GPU: false
+  Pixel Format: bgr
+
+🎯 Best Available Backend: ffmpegcv
+```
+
+### Backend-Specific Options
+
+When using FFmpegCV, you have access to additional encoding options:
+
+```bash
+# Use NVIDIA GPU acceleration
+timelapse generate images/ output.mp4 --backend ffmpegcv --codec h264_nvenc
+
+# Use Intel Quick Sync
+timelapse generate images/ output.mp4 --backend ffmpegcv --codec h264_qsv
+
+# High quality encoding with specific CRF
+timelapse generate images/ output.mp4 --backend ffmpegcv --quality ultra --crf 15
+
+# Custom bitrate for professional workflows
+timelapse generate images/ output.mp4 --backend ffmpegcv --bitrate 20M
+```
+
 ## Usage Examples
 
 ### Video Generation Options
@@ -182,6 +284,15 @@ timelapse generate /path/to/images output.mp4 --resolution 3840x2160
 
 # Create thumbnail with video
 timelapse generate /path/to/images output.mp4 --thumbnail --quality high
+
+# Use FFmpegCV with hardware acceleration (NVIDIA)
+timelapse generate /path/to/images output.mp4 --backend ffmpegcv --codec h264_nvenc
+
+# Professional encoding with FFmpegCV
+timelapse generate /path/to/images output.mp4 --backend ffmpegcv --quality ultra --codec libx265
+
+# Software fallback with specific codec
+timelapse generate /path/to/images output.mp4 --backend opencv --codec mp4v
 ```
 
 ### Thumbnail Generation
@@ -239,14 +350,26 @@ timelapse upload video.mp4 --kp-index 6.5
 ### Advanced Workflow
 
 ```bash
-# Complete workflow with custom settings
+# Complete workflow with custom settings and FFmpegCV
 timelapse process /path/to/images output.mp4 \
   --fps 25 \
   --quality high \
+  --backend ffmpegcv \
+  --codec h264_nvenc \
   --resolution 1920x1080 \
   --kp-threshold 5 \
   --location "Your City, Country" \
   --thumbnail
+
+# Professional 4K timelapse with H.265
+timelapse process /path/to/images output.mp4 \
+  --fps 30 \
+  --quality ultra \
+  --backend ffmpegcv \
+  --codec libx265 \
+  --resolution 3840x2160 \
+  --kp-threshold 4 \
+  --bitrate 50M
 
 # Monitor Kp index continuously
 while true; do
@@ -333,6 +456,30 @@ rm -rf ~/.cache/timelapse_generator/
 timelapse check-kp --no-cache
 ```
 
+**Backend not available**
+```bash
+# Check available backends
+timelapse backend-info
+
+# Install FFmpegCV for hardware acceleration
+uv sync --extra ffmpegcv
+
+# Force use of OpenCV backend
+timelapse generate images/ output.mp4 --backend opencv
+```
+
+**Hardware acceleration not working**
+```bash
+# Check backend status and hardware support
+timelapse backend-info
+
+# Try different codec
+timelapse generate images/ output.mp4 --backend ffmpegcv --codec libx264
+
+# Disable hardware acceleration
+timelapse generate images/ output.mp4 --backend opencv
+```
+
 ### Debug Mode
 
 Enable verbose logging:
@@ -380,6 +527,12 @@ src/timelapse_generator/
 │   └── templates.py       # Metadata templates
 ├── video/
 │   ├── generator.py       # Video generation
+│   ├── backends/          # Video encoding backends
+│   │   ├── base.py        # Base backend interface
+│   │   ├── opencv_backend.py  # OpenCV backend
+│   │   ├── ffmpegcv_backend.py # FFmpegCV backend
+│   │   ├── registry.py    # Backend registry
+│   │   └── __init__.py    # Backend initialization
 │   └── encoder.py         # Video encoding
 ├── weather/
 │   ├── noaa_client.py     # NOAA data fetching
