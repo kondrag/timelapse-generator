@@ -9,6 +9,6 @@ DUSK=$(python ${SCRIPT_DIR}/sun.py --dusk)
 echo "Dawn is $DAWN"
 echo "Dusk is $DUSK"
 
-at $DAWN < ${SCRIPT_DIR}/timelapse_night.sh
-at $DUSK < ${SCRIPT_DIR}/timelapse_day.sh
+at $DAWN < ${SCRIPT_DIR}/move_ftp_images.sh night
+at $DUSK < ${SCRIPT_DIR}/move_ftp_images.sh day
 

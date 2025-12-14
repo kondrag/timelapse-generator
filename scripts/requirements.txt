@@ -1,5 +1,1 @@
 astral
-google-api-python-client
-httplib2
-oauthclient
-

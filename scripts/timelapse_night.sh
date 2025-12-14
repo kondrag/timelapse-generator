@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 
 LOGFILE=/var/log/timelapse.log
-FTP_PUB=/srv/ftp/pub
+FTP_DIR=/srv/ftp/pub/aurora
 TIMELAPSE_DIR=/var/local/timelapse
 TODAY=$(date +%Y%m%d)
 DAY=$(date +%A)
@@ -19,7 +19,7 @@ echo "Updated PATH is $PATH" >> $LOGFILE
 echo "Removing directories older than 21 days from $TIMELAPSE_DIR" >> $LOGFILE
 find $TIMELAPSE_DIR -type d -mtime +21 -print -exec rm -rf {} + >> $LOGFILE
 
-cd $FTP_PUB
+cd $FTP_DIR
 
 echo "There are $(ls -1 *.jpg | wc -l) images in $(pwd)" >> $LOGFILE
 echo "Moving JPG images to ${PROCESS_DIR} directory..." >> $LOGFILE
@@ -38,34 +38,37 @@ echo "Removing latest image: $latest" >> $LOGFILE
 rm -f $latest
 echo "There are $(ls -1 *.jpg | wc -l) images for the timelapse video in $(pwd)." >> $LOGFILE
 
-echo "$(date) - Creating nighttime timelapse 360p video..." >> $LOGFILE
-nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "*.jpg" -c:v libx264 -threads 4 -preset veryfast -vf scale=640:360 -pix_fmt yuv420p AuroraCam_${TODAY}_360p.mp4
-RETVAL="${?}"
+echo "$(date) - Creating nighttime timelapse 720x480 video..." >> $LOGFILE
+cd /opt/timelapse-generator
+LOW_RES="720x480"
+LOW_RES_FILENAME="AuroraCam_${TODAY}_${LOW_RES}.mp4"
+uv run timelapse generate -q medium --resolution ${LOW_RES} --framerate 60 $PROCESS_DIR $LOW_RES_FILENAME
+RETVAL_LOW=$?
 
-echo "$(date) ffmpeg 360p video creationg return value: $RETVAL" >> $LOGFILE
+echo "$(date) - Nighttime ${LOW_RES} video creation return value: $RETVAL_LOW" >> $LOGFILE
 
 echo "Finding midnight thumbnail image..." >> $LOGFILE
-THUMBNAIL=$(ls AuroraCam_00_$(date +%Y%m%d)*.jpg 2>/dev/null | sort | head -1)
+THUMBNAIL=$(ls ${PROCESS_DIR}/AuroraCam_00_$(date +%Y%m%d)*.jpg 2>/dev/null | sort | head -1)
 echo "Using ${THUMBNAIL} as thumbnail image" >> $LOGFILE
 
-if [ "${RETVAL}" = "0" ]; then
-  echo "$(date) - Copying 360p video to weewx" >> $LOGFILE
-  cp -v "AuroraCam_${TODAY}_360p.mp4" "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.mp4" >> $LOGFILE
-  echo "Resizing thumbnail to 640x360..." >> $LOGFILE
-  convert "${THUMBNAIL}" -resize 640x360 "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.thumbnail.jpg"
-  RETVAL="${?}"
-  echo "ffmpeg 360p thumbnail creation return value: $RETVAL" >> $LOGFILE 
+if [ "${RETVAL_LOW}" = "0" ]; then
+  echo "$(date) - Copying ${LOW_RES} video to weewx" >> $LOGFILE
+  cp -v "$LOW_RES_FILENAME" "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.mp4" >> $LOGFILE
+  echo "Resizing thumbnail to ${LOW_RES}..." >> $LOGFILE
+  convert "${THUMBNAIL}" -resize ${LOW_RES} "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.thumbnail.jpg"
+  RETVAL_THUMB="${?}"
+  echo "Thumbnail creation return value: $RETVAL_THUMB" >> $LOGFILE 
 fi
 
-echo "$(date) - Creating nighttime timelapse 1080p video..." >> $LOGFILE
-nice -n 19 ffmpeg -threads 3 -framerate 60 -pattern_type glob -i "*.jpg" -c:v libx264 -threads 3 -preset medium -vf scale=1920:1080 -pix_fmt yuv420p AuroraCam_${TODAY}_1080p.mp4
-RETVAL="${RETVAL}${?}"
+echo "$(date) - Creating nighttime timelapse 2560x1440 video..." >> $LOGFILE
+HIGH_RES="2560x1440"
+HIGH_RES_FILENAME="AuroraCam_${TODAY}_${HIGH_RES}.mp4"
+uv run timelapse generate -q high --resolution ${HIGH_RES} --framerate 60 $PROCESS_DIR $HIGH_RES_FILENAME
+RETVAL_HIGH=$?
 
-#echo "$(date) - Creating timelapse 1440p video..." >> $LOGFILE
-#nice -n 19 ffmpeg -threads 3 -framerate 30 -pattern_type glob -i "*.jpg" -c:v libx264 -threads 3 -preset medium -vf scale=2560:1440 -pix_fmt yuv420p AuroraCam_${TODAY}_1440p.mp4
-#RETVAL="${RETVAL}${?}"
+RETVAL="${RETVAL_LOW}${RETVAL_HIGH}"
 
-echo "ffmpeg return values: $RETVAL" >> $LOGFILE
+echo "Timelapse generation return values: $RETVAL" >> $LOGFILE
 
 wget -v https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json -O "${ARCHIVE_DIR}/k-index_${TODAY}.json" >> $LOGFILE
 wget -v https://services.swpc.noaa.gov/images/swx-overview-large.gif -O "${ARCHIVE_DIR}/SpaceWeather_${TODAY}.gif" >> $LOGFILE
