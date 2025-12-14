@@ -12,7 +12,7 @@ fi
 
 CAMERA_NAME="$1"
 SITE_NAME="$2"
-FTP_DIR="/srv/ftp/pub/$CAMERA_NAME"
+FTP_DIR="/srv/ftp/$CAMERA_NAME"
 WEEWX_DIR="/tmp/weewx"
 SITE_DIR="$WEEWX_DIR/$SITE_NAME"
 
@@ -23,5 +23,5 @@ latest=$(ls -t *.jpg | head -n 2 | tail -n 1)
 RETVAL=$?
 
 if [ "$RETVAL" = "0" ]; then
-    convert "$latest" -resize "1280x720" "$SITE_DIR/$CAMERA_NAME.jpg"
+    convert "$latest" -resize "1280x720" "$SITE_DIR/latest.jpg"
 fi
