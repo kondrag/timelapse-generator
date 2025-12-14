@@ -46,6 +46,7 @@ def cli(ctx, config, verbose, log_file):
 @click.argument('output_file', type=click.Path(path_type=Path))
 @click.option('--fps', '-f', type=int, default=None, help='Frames per second')
 @click.option('--quality', '-q', type=click.Choice(['low', 'medium', 'high', 'ultra']), default=None, help='Video quality')
+@click.option('--backend', '-b', type=click.Choice(['opencv', 'ffmpegcv', 'auto']), default=None, help='Video encoding backend')
 @click.option('--codec', type=str, help='Video codec')
 @click.option('--bitrate', type=str, help='Custom bitrate (e.g., "5M")')
 @click.option('--resolution', type=str, help='Output resolution (e.g., "1920x1080")')
@@ -54,12 +55,13 @@ def cli(ctx, config, verbose, log_file):
 @click.option('--estimate-only', is_flag=True, help='Only estimate output, do not generate')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts')
 @click.pass_context
-def generate(ctx, input_dir, output_file, fps, quality, codec, bitrate, resolution, thumbnail, progress, estimate_only, yes):
+def generate(ctx, input_dir, output_file, fps, quality, backend, codec, bitrate, resolution, thumbnail, progress, estimate_only, yes):
     """Generate timelapse video from images."""
     try:
         # Use settings defaults if not specified
         fps = fps or settings.video.fps
         quality = quality or settings.video.quality
+        backend = backend or settings.video.backend
         codec = codec or settings.video.codec
         bitrate = bitrate or settings.video.bitrate
 
@@ -75,12 +77,23 @@ def generate(ctx, input_dir, output_file, fps, quality, codec, bitrate, resoluti
 
         logger.info(f"Input directory: {input_dir}")
         logger.info(f"Output file: {output_file}")
-        logger.info(f"Settings: fps={fps}, quality={quality}, codec={codec}")
+        logger.info(f"Settings: fps={fps}, quality={quality}, backend={backend}, codec={codec}")
+
+        # Check backend availability
+        from .video.backends import BackendRegistry
+        if backend != 'auto':
+            if not BackendRegistry.is_backend_available(backend):
+                logger.error(f"Backend '{backend}' is not available")
+                available = BackendRegistry.get_available_backends()
+                if available:
+                    logger.info(f"Available backends: {', '.join(available.keys())}")
+                sys.exit(1)
 
         # Create video generator
         generator = VideoGenerator(
             fps=fps,
             quality=quality,
+            backend=backend,
             codec=codec,
             bitrate=bitrate,
             resolution=target_resolution,
@@ -434,6 +447,61 @@ def config():
     click.echo(f"\n📝 Logging Settings:")
     click.echo(f"  Level: {settings.logging.level}")
     click.echo(f"  Log File: {settings.logging.file_path}")
+
+
+@cli.command()
+def backend_info():
+    """Show information about available video backends."""
+    try:
+        from .video.backends import BackendRegistry, list_available_backends
+
+        click.echo("🎥 Video Backend Information\n")
+
+        # Get all backend information
+        all_backends = BackendRegistry.get_backend_info()
+        available_backends = list_available_backends()
+
+        for name, info in all_backends.items():
+            status = "✅ Available" if info['available'] else "❌ Not Available"
+            click.echo(f"Backend: {name}")
+            click.echo(f"  Status: {status}")
+            click.echo(f"  Priority: {info['priority']}")
+            click.echo(f"  Default Codec: {info.get('default_codec', 'N/A')}")
+            click.echo(f"  Supported Codecs: {', '.join(info.get('supported_codecs', []))}")
+            click.echo(f"  Supported Formats: {', '.join(info.get('supported_extensions', []))}")
+            click.echo(f"  GPU Support: {'Yes' if info.get('supports_gpu', False) else 'No'}")
+            click.echo(f"  Pixel Format: {info.get('pixel_format', 'N/A')}")
+
+            # Show hardware acceleration info for FFmpegCV
+            if name == 'ffmpegcv' and info['available']:
+                try:
+                    from .video.backends.ffmpegcv_backend import FFmpegCVBackend
+                    backend = FFmpegCVBackend(30, 1920, 1080)
+                    hw_info = backend.get_hardware_info()
+                    click.echo(f"  Hardware Acceleration:")
+                    click.echo(f"    NVIDIA NVENC: {'Available' if hw_info['nvidia_available'] else 'Not Available'}")
+                    click.echo(f"    Intel QSV: {'Available' if hw_info['intel_qsv_available'] else 'Not Available'}")
+                    click.echo(f"    AMD AMF: {'Available' if hw_info['amd_available'] else 'Not Available'}")
+                except:
+                    pass
+
+            click.echo()
+
+        # Show current configuration
+        click.echo("📋 Current Configuration:")
+        click.echo(f"  Default Backend: {settings.video.backend}")
+        click.echo(f"  Auto-Select: {settings.video.auto_select_backend}")
+        click.echo(f"  Fallback Enabled: {settings.video.fallback_enabled}")
+
+        click.echo(f"\n🎯 Best Available Backend: {BackendRegistry.get_best_backend() or 'None'}")
+
+        if not available_backends:
+            click.echo("\n⚠️  No backends are available! Install dependencies to enable video encoding.")
+            click.echo("   For FFmpegCV: pip install ffmpegcv")
+
+    except Exception as e:
+        logger.error(f"Failed to get backend info: {e}")
+        sys.exit(1)
 
 
 def main():

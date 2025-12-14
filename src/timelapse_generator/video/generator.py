@@ -18,6 +18,7 @@ from ..utils.file_utils import (
     get_common_image_properties
 )
 from ..utils.logging import get_logger
+from .backends import create_backend, BackendRegistry
 from .encoder import VideoEncoder
 
 logger = get_logger(__name__)
@@ -30,34 +31,76 @@ class VideoGenerator:
         self,
         fps: int = 30,
         quality: str = 'medium',
+        backend: Optional[str] = None,
         codec: Optional[str] = None,
         bitrate: Optional[str] = None,
         resolution: Optional[Tuple[int, int]] = None,
-        show_progress: bool = True
+        show_progress: bool = True,
+        backend_fallback: bool = True
     ):
         """Initialize video generator.
 
         Args:
             fps: Frames per second
             quality: Quality preset (low, medium, high, ultra)
+            backend: Video encoding backend (opencv, ffmpegcv, auto)
             codec: Video codec
             bitrate: Custom bitrate
             resolution: Output resolution (width, height)
             show_progress: Whether to show progress meter
+            backend_fallback: Enable fallback to other backends if primary fails
         """
         self.fps = fps
         self.quality = quality
         self.resolution = resolution
         self.show_progress = show_progress
+        self.backend_fallback = backend_fallback
 
-        # Initialize encoder
+        # Determine backend
+        if backend is None:
+            backend = self._select_best_backend()
+
+        self.backend_name = backend
+        self.codec = codec
+        self.bitrate = bitrate
+
+        # Keep encoder for compatibility and helper methods
         self.encoder = VideoEncoder(
             quality=quality,
             codec=codec,
             custom_bitrate=bitrate
         )
 
-        logger.info(f"Video generator initialized: fps={fps}, quality={quality}, codec={codec}, bitrate={bitrate}, resolution={resolution}, show_progress={show_progress}")
+        logger.info(f"Video generator initialized: fps={fps}, quality={quality}, backend={backend}, codec={codec}, bitrate={bitrate}, resolution={resolution}, show_progress={show_progress}")
+
+    def _select_best_backend(self) -> str:
+        """Select the best available backend."""
+        # Check configuration first
+        config = settings.video
+
+        if config.auto_select_backend:
+            # Auto-select based on availability and priority
+            available = BackendRegistry.get_available_backends()
+            if not available:
+                raise RuntimeError("No video backends are available")
+
+            # Filter by enabled backends
+            enabled_backends = []
+            for name in available.keys():
+                if name in config.backends and config.backends[name].enabled:
+                    enabled_backends.append(name)
+
+            if not enabled_backends:
+                # Fall back to any available backend
+                enabled_backends = list(available.keys())
+
+            # Sort by priority (lower = higher priority)
+            enabled_backends.sort(key=lambda x: config.backends[x].priority if x in config.backends else 100)
+
+            return enabled_backends[0]
+
+        # Use configured backend
+        return config.backend
 
     def generate_video(
         self,
@@ -124,18 +167,72 @@ class VideoGenerator:
 
         logger.info(f"Output video dimensions: {width}x{height}")
 
-        # Initialize video writer
-        fourcc = self.encoder.get_fourcc()
-        video_writer = cv2.VideoWriter(
-            str(output_path),
-            fourcc,
-            self.fps,
-            (width, height)
-        )
+        # Create and initialize backend
+        backend = self._create_backend_instance(width, height)
 
-        if not video_writer.isOpened():
-            logger.error(f"Failed to initialize video writer for {output_path}")
-            raise RuntimeError("Failed to initialize video writer")
+        try:
+            # Generate video using the backend
+            return self._generate_with_backend(
+                backend, valid_images, output_path, width, height,
+                progress_callback, create_thumbnail, props
+            )
+        finally:
+            # Ensure backend is closed
+            try:
+                backend.close()
+            except:
+                pass
+
+    def _create_backend_instance(self, width: int, height: int):
+        """Create a backend instance with fallback support."""
+        backend_kwargs = {
+            'fps': self.fps,
+            'width': width,
+            'height': height,
+            'codec': self.codec,
+            'bitrate': self.bitrate,
+            'quality_preset': self.quality
+        }
+
+        # Add backend-specific settings from configuration
+        config = settings.video
+        backend_config = config.backends.get(self.backend_name)
+        if backend_config:
+            backend_kwargs.update(backend_config.settings)
+
+        # Try primary backend
+        try:
+            logger.info(f"Creating backend: {self.backend_name}")
+            return create_backend(self.backend_name, **backend_kwargs)
+        except Exception as e:
+            logger.error(f"Failed to create backend {self.backend_name}: {e}")
+            if not self.backend_fallback:
+                raise RuntimeError(f"Failed to create backend {self.backend_name}: {e}")
+
+        # Try fallback backends
+        available = BackendRegistry.get_available_backends()
+        for backend_name in available.keys():
+            if backend_name == self.backend_name:
+                continue
+
+            try:
+                logger.info(f"Trying fallback backend: {backend_name}")
+                return create_backend(backend_name, **backend_kwargs)
+            except Exception as e:
+                logger.warning(f"Fallback backend {backend_name} failed: {e}")
+                continue
+
+        raise RuntimeError(f"Failed to create any video backend. Tried: {list(available.keys())}")
+
+    def _generate_with_backend(self, backend, valid_images, output_path, width, height,
+                              progress_callback, create_thumbnail, props):
+        """Generate video using a specific backend."""
+        logger.info(f"Using backend: {backend.name}")
+        backend_info = backend.get_encoder_info()
+        logger.info(f"Backend settings: {backend_info}")
+
+        # Open video writer
+        backend.open(output_path)
 
         try:
             # Process each image with enhanced progress tracking
@@ -147,7 +244,7 @@ class VideoGenerator:
             # Progress tracking setup
             progress_context = tqdm(
                 total=total_images,
-                desc="Creating timelapse",
+                desc=f"Creating timelapse ({backend.name})",
                 unit="images",
                 bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
                 dynamic_ncols=True,
@@ -192,10 +289,10 @@ class VideoGenerator:
             for i, image_path in enumerate(valid_images):
                 try:
                     # Read and process image
-                    frame = self._process_image(image_path, width, height)
+                    frame = self._process_image(image_path, width, height, backend.get_pixel_format())
 
                     if frame is not None:
-                        video_writer.write(frame)
+                        backend.write_frame(frame)
                         frame_count += 1
 
                         # Calculate timing and statistics
@@ -256,8 +353,8 @@ class VideoGenerator:
                 final_success_rate = (frame_count / total_images) * 100
                 logger.info(f"Processing completed: {final_success_rate:.1f}% success rate, {avg_fps:.1f} avg fps")
 
-            # Release video writer
-            video_writer.release()
+            # Close video writer
+            backend.close()
 
             # Verify output file
             if not output_path.exists():
@@ -277,6 +374,8 @@ class VideoGenerator:
             return {
                 "success": True,
                 "output_path": str(output_path),
+                "backend_used": backend.name,
+                "encoder_info": backend_info,
                 "frame_count": frame_count,
                 "skipped_count": skipped_count,
                 "output_size_bytes": output_size,
@@ -290,24 +389,29 @@ class VideoGenerator:
 
         except Exception as e:
             logger.error(f"Error during video generation: {e}")
-            # Clean up partial output file
+            # Cleanup
+            try:
+                backend.close()
+            except:
+                pass
             if output_path.exists():
                 output_path.unlink()
             raise
 
-    def _process_image(self, image_path: Path, target_width: int, target_height: int) -> Optional[np.ndarray]:
+    def _process_image(self, image_path: Path, target_width: int, target_height: int, pixel_format: str = 'bgr') -> Optional[np.ndarray]:
         """Process a single image for video.
 
         Args:
             image_path: Path to input image
             target_width: Target width
             target_height: Target height
+            pixel_format: Expected pixel format ('bgr', 'rgb')
 
         Returns:
             Processed image as numpy array or None if failed
         """
         try:
-            # Read image
+            # Read image (OpenCV reads in BGR format)
             img = cv2.imread(str(image_path))
             if img is None:
                 logger.warning(f"Failed to read image: {image_path}")
@@ -317,6 +421,16 @@ class VideoGenerator:
             current_height, current_width = img.shape[:2]
             if current_width != target_width or current_height != target_height:
                 img = cv2.resize(img, (target_width, target_height), interpolation=cv2.INTER_AREA)
+
+            # Convert to requested pixel format if needed
+            if pixel_format == 'rgb' and len(img.shape) == 3 and img.shape[2] == 3:
+                # Convert from BGR to RGB
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            elif pixel_format == 'bgr':
+                # Already in BGR format (OpenCV default)
+                pass
+            else:
+                logger.warning(f"Unsupported pixel format: {pixel_format}, using BGR")
 
             return img
 

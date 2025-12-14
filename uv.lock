@@ -583,6 +583,20 @@ wheels = [
 ]
 
 [[package]]
+name = "ffmpegcv"
+version = "0.3.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/a4/fd0f0f5bb3d9c82f2bff0a65681a41be69e7c78570754950454226ee6b43/ffmpegcv-0.3.18.tar.gz", hash = "sha256:ba65969ae41c66dad30bda12e06ee595c7737ce88364c41662321566b228df6f", size = 30341, upload-time = "2025-04-15T13:50:10.62Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/91/e372814132b796045caedfba5b7c6abf7f555019df3860d15aa9bb51bd27/ffmpegcv-0.3.18-py3-none-any.whl", hash = "sha256:e6c46db914750c0bf99fd517e54b7ada0626dd337f30ebdf5eec77279301ea48", size = 32610, upload-time = "2025-04-15T13:50:09.312Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "3.19.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2181,6 +2195,17 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "black" },
+    { name = "ffmpegcv" },
+    { name = "flake8" },
+    { name = "mypy" },
+    { name = "pre-commit", version = "4.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pre-commit", version = "4.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pytest", version = "9.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytest-cov" },
+]
 dev = [
     { name = "black" },
     { name = "flake8" },
@@ -2191,6 +2216,9 @@ dev = [
     { name = "pytest", version = "9.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest-cov" },
 ]
+ffmpegcv = [
+    { name = "ffmpegcv" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2199,6 +2227,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "ffmpeg-python", specifier = ">=0.2.0" },
+    { name = "ffmpegcv", marker = "extra == 'ffmpegcv'", specifier = ">=0.2.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "google-api-python-client", specifier = ">=2.100.0" },
     { name = "google-auth", specifier = ">=2.25.0" },
@@ -2217,9 +2246,11 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "timelapse-generator", extras = ["dev"], marker = "extra == 'all'" },
+    { name = "timelapse-generator", extras = ["ffmpegcv"], marker = "extra == 'all'" },
     { name = "tqdm", specifier = ">=4.66.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["ffmpegcv", "dev", "all"]
 
 [[package]]
 name = "tomli"

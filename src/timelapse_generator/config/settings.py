@@ -9,15 +9,44 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field, validator
 
 
+class BackendSettings(BaseModel):
+    """Settings for specific video backend."""
+
+    enabled: bool = Field(default=True, description="Whether this backend is enabled")
+    priority: int = Field(default=100, description="Backend priority (lower = higher priority)")
+    settings: Dict[str, str] = Field(default_factory=dict, description="Backend-specific settings")
+
+    @validator('priority')
+    def validate_priority(cls, v):
+        """Validate priority is reasonable."""
+        if v < 1 or v > 1000:
+            raise ValueError("Priority must be between 1 and 1000")
+        return v
+
+
 class VideoSettings(BaseModel):
     """Video generation settings."""
 
     output_path: Path = Field(default=Path("./output"), description="Output directory for videos")
-    fps: int = Field(default=30, ge=1, le=120, description="Frames per second")
-    quality: str = Field(default="medium", pattern="^(low|medium|high|custom)$", description="Video quality preset")
+    fps: int = Field(default=30, ge=1, le=240, description="Frames per second")
+    quality: str = Field(default="medium", pattern="^(low|medium|high|ultra|custom)$", description="Video quality preset")
     codec: str = Field(default="mp4v", description="Video codec")
     bitrate: Optional[str] = Field(default=None, description="Custom bitrate (e.g., '5M', '10M')")
     resolution: Optional[tuple[int, int]] = Field(default=None, description="Output resolution (width, height)")
+
+    # Backend configuration
+    backend: str = Field(default="auto", pattern="^(auto|opencv|ffmpegcv)$", description="Video encoding backend")
+    fallback_enabled: bool = Field(default=True, description="Enable backend fallback if primary fails")
+    auto_select_backend: bool = Field(default=True, description="Automatically select best available backend")
+
+    # Backend-specific configurations
+    backends: Dict[str, BackendSettings] = Field(
+        default_factory=lambda: {
+            'opencv': BackendSettings(enabled=True, priority=100),
+            'ffmpegcv': BackendSettings(enabled=True, priority=90),  # Higher priority
+        },
+        description="Backend-specific configurations"
+    )
 
     @property
     def quality_settings(self) -> Dict[str, str]:
@@ -26,6 +55,7 @@ class VideoSettings(BaseModel):
             "low": {"bitrate": "2M", "codec": "mp4v"},
             "medium": {"bitrate": "5M", "codec": "mp4v"},
             "high": {"bitrate": "10M", "codec": "mp4v"},
+            "ultra": {"bitrate": "20M", "codec": "mp4v"},
             "custom": {"bitrate": self.bitrate or "5M", "codec": self.codec}
         }
         return presets[self.quality]
