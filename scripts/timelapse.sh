@@ -9,10 +9,9 @@ LOW_RES="640x360"
 HIGH_RES="2560x1440"
 
 # Setup logging and path
-echo "===== Starting timelapse processing for $1 at $(date) =====" >> $LOGFILE
-echo "PATH is $PATH" >> $LOGFILE
-echo "TIMELAPSE_DIR is $TIMELAPSE_DIR" >> $LOGFILE
-echo "Updated PATH is $PATH" >> $LOGFILE
+log "===== Starting timelapse processing for $1 ====="
+log "PATH is $PATH"
+log "TIMELAPSE_DIR is $TIMELAPSE_DIR"
 
 
 cleanup_old_dirs() {
@@ -26,14 +25,50 @@ generate_timelapse_ffmpeg() {
     local INPUT_DIR=$3
     local OUTPUT_FILENAME=$4
     local OUTPUT_FILEPATH="${INPUT_DIR}/${OUTPUT_FILENAME}"
+    local INPUT_COUNT DURATION FRAMES
 
-    echo "$(date) - Creating timelapse video with ffmpeg..." >> $LOGFILE
-    #pushd "$PWD"
-    #cd "$INPUT_DIR"
-    nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" -c:v libx264 -threads 4 -preset ${PRESET} -vf scale=${RESOLUTION/x/:} -pix_fmt yuv420p "$OUTPUT_FILEPATH"
+    local BAD_DIR="${INPUT_DIR}/bad_frames"
+    local BAD_LIST
+    BAD_LIST=$(find "${INPUT_DIR}" -maxdepth 1 -type f -name '*.jpg' \( ! -readable -o -size 0 \) 2>/dev/null)
+    if [ -n "${BAD_LIST}" ]; then
+        local BAD_COUNT TOTAL_COUNT
+        BAD_COUNT=$(printf '%s\n' "${BAD_LIST}" | wc -l)
+        TOTAL_COUNT=$(find "${INPUT_DIR}" -maxdepth 1 -type f -name '*.jpg' 2>/dev/null | wc -l)
+        if [ "${BAD_COUNT}" -ge "${TOTAL_COUNT}" ]; then
+            log "ERROR: all ${TOTAL_COUNT} input image(s) in ${INPUT_DIR} are unreadable/empty - this is a file ownership/permission problem, NOT quarantining. Aborting."
+            echo "${OUTPUT_FILEPATH}"
+            return 1
+        fi
+        log "ERROR: ${BAD_COUNT} bad input image(s) (empty or unreadable) in ${INPUT_DIR}; quarantining to ${BAD_DIR}"
+        log "bad image samples: $(printf '%s\n' "${BAD_LIST}" | head -3)"
+        mkdir -p "${BAD_DIR}"
+        printf '%s\n' "${BAD_LIST}" | xargs -d '\n' mv -t "${BAD_DIR}" --
+    fi
+
+    INPUT_COUNT=$(ls -1 "${INPUT_DIR}"/*.jpg 2>/dev/null | wc -l)
+    log "input images: $(jpg_stats "${INPUT_DIR}")"
+    if [ "$INPUT_COUNT" -eq 0 ]; then
+        log "ERROR: no JPG images in ${INPUT_DIR} - nothing to encode"
+        echo "${OUTPUT_FILEPATH}"
+        return 1
+    fi
+    log "expected video duration at 60 fps: $(awk "BEGIN{printf \"%.1f\", ${INPUT_COUNT}/60}")s"
+    log "disk space available for output: $(df --output=avail -h "${INPUT_DIR}" 2>/dev/null | tail -1)"
+
+    log "$(date) - Creating timelapse video with ffmpeg..."
+    nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" -c:v libx264 -threads 4 -preset ${PRESET} -vf scale=${RESOLUTION/x/:} -pix_fmt yuv420p "$OUTPUT_FILEPATH" >> $LOGFILE 2>&1
     RETVAL="${?}"
-    echo "$(date) - timelapse video creation return value: $RETVAL" >> $LOGFILE
-    #   popd
+    log "$(date) - timelapse video creation return value: $RETVAL"
+
+    if [ "$RETVAL" -eq 0 ]; then
+        DURATION=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$OUTPUT_FILEPATH" 2>/dev/null)
+        FRAMES=$(ffprobe -v error -select_streams v -show_entries stream=nb_frames -of default=nw=1:nk=1 "$OUTPUT_FILEPATH" 2>/dev/null)
+        log "output video: duration=${DURATION}s frames=${FRAMES} (input images: ${INPUT_COUNT})"
+        if [ -n "$FRAMES" ] && [ "$FRAMES" -ne "$INPUT_COUNT" ]; then
+            log "ERROR: output frames=${FRAMES} != input images=${INPUT_COUNT} - video truncated"
+            RETVAL=1
+        fi
+    fi
 
     echo "${OUTPUT_FILEPATH}"
 
@@ -85,15 +120,18 @@ process_day() {
     local SUBDIR="day"
     local PROCESS_DIR=${ARCHIVE_DIR}/${SUBDIR}
     local VIDEO_FILENAME="CloudCam_${TODAY}_${LOW_RES}.mp4"
+
+    log "expected day window: dawn $(python3 ${SCRIPT_DIR}/sun.py --dawn 2>/dev/null || echo '?') to dusk $(python3 ${SCRIPT_DIR}/sun.py --dusk 2>/dev/null || echo '?')"
     
     # Generate Low Res Video
-    local VIDEO_PATH=$(generate_timelapse_ffmpeg "veryfast" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
-    local RETVAL=$?
+    local VIDEO_PATH RETVAL
+    VIDEO_PATH=$(generate_timelapse_ffmpeg "veryfast" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
+    RETVAL=$?
     echo "$(date) VIDEO_PATH is $VIDEO_PATH" >> $LOGFILE
     echo "$(date) timelapse video creation return value: $RETVAL" >> $LOGFILE
     
     echo "$(date) Finding noon thumbnail image..." >> $LOGFILE
-    local THUMBNAIL=$(find ${PROCESS_DIR} -name "AuroraCam_00_$(date +%Y%m%d)*.jpg" -newermt "$(date +%Y-%m-%d) 12:00" -type f | sort | head -1)
+    local THUMBNAIL=$(find ${PROCESS_DIR} -name "AuroraCam_00_$(date +%Y%m%d)*.jpg" -newermt "$(date +%Y-%m-%d) 12:00" -type f -not -path "*/bad_frames/*" | sort | head -1)
     echo "$(date) Using ${THUMBNAIL} as thumbnail image" >> $LOGFILE
 
     if [ "${RETVAL}" = "0" ]; then
@@ -117,8 +155,12 @@ process_day() {
         echo "$(date) - Error creating daylight timelapse: Error $RETVAL" >> $LOGFILE
     fi
 
-    echo "Removing daylight JPG files and process dir" >> $LOGFILE
-    #rm -rf $PROCESS_DIR
+    if [ "${RETVAL}" = "0" ]; then
+        log "Removing daylight JPG files and process dir"
+        rm -rf $PROCESS_DIR
+    else
+        log "ERROR: day timelapse failed - keeping $PROCESS_DIR for inspection/retry"
+    fi
 }
 
 process_night() {
@@ -127,10 +169,13 @@ process_night() {
     local PROCESS_DIR=${ARCHIVE_DIR}/${SUBDIR}
     local LOW_RES_FILENAME="AuroraCam_${TODAY}_${LOW_RES}.mp4"
     local HIGH_RES_FILENAME="AuroraCam_${TODAY}_${HIGH_RES}.mp4"
+
+    log "expected night window: dusk $(python3 ${SCRIPT_DIR}/sun.py --dusk 2>/dev/null || echo '?') yesterday to dawn $(python3 ${SCRIPT_DIR}/sun.py --dawn 2>/dev/null || echo '?') today"
     
     # Generate Low Res
-    local VIDEO_PATH_LOW=$(generate_timelapse_ffmpeg "low" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
-    local RETVAL_LOW=$?
+    local VIDEO_PATH_LOW RETVAL_LOW
+    VIDEO_PATH_LOW=$(generate_timelapse_ffmpeg "veryfast" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
+    RETVAL_LOW=$?
     echo "$(date) VIDEO_PATH_LOW is $VIDEO_PATH_LOW" >> $LOGFILE
     echo "$(date) - Nighttime ${LOW_RES} video creation return value: $RETVAL_LOW" >> $LOGFILE
 
@@ -153,21 +198,32 @@ process_night() {
         fi
     fi
 
+    # download spaceweather
+    ${SCRIPT_DIR}/fetch_spaceweather.sh
+
     # Generate High Res
-    local VIDEO_PATH_HIGH=$(generate_timelapse_ffmpeg "medium" "${HIGH_RES}" "${PROCESS_DIR}" "${HIGH_RES_FILENAME}")
-    local RETVAL_HIGH=$?
+    local VIDEO_PATH_HIGH RETVAL_HIGH
+    VIDEO_PATH_HIGH=$(generate_timelapse_ffmpeg "medium" "${HIGH_RES}" "${PROCESS_DIR}" "${HIGH_RES_FILENAME}")
+    RETVAL_HIGH=$?
     echo "$(date) VIDEO_PATH_HIGH is $VIDEO_PATH_HIGH" >> $LOGFILE
     
-    local RETVAL="${RETVAL_LOW}${RETVAL_HIGH}"
-    echo "Timelapse generation return values: $RETVAL" >> $LOGFILE
-    echo "$(date) - Nighttime timelapse videos created successfully." >> $LOGFILE
-    # Files are in /opt/timelapse-generator
-    ls -al ${PROCESS_DIR}/*.mp4 >> $LOGFILE
-    echo "$(date) - Moving ${VIDEO_PATH_LOW} and ${VIDEO_PATH_HIGH} to archive dir $ARCHIVE_DIR" >> $LOGFILE
-    mv -v ${VIDEO_PATH_LOW} ${VIDEO_PATH_HIGH} $ARCHIVE_DIR >> $LOGFILE
+    log "Timelapse generation return values: LOW=$RETVAL_LOW HIGH=$RETVAL_HIGH"
+    if [ "$RETVAL_LOW" -eq 0 ] && [ "$RETVAL_HIGH" -eq 0 ]; then
+        log "$(date) - Nighttime timelapse videos created successfully."
+    else
+        log "$(date) - ERROR: nighttime timelapse incomplete (LOW=$RETVAL_LOW HIGH=$RETVAL_HIGH)"
+    fi
 
-    echo "Removing processing dir $PROCESS_DIR" >> $LOGFILE
-    #rm -rf $PROCESS_DIR
+    ls -al ${PROCESS_DIR}/*.mp4 >> $LOGFILE 2>&1
+    log "$(date) - Moving ${VIDEO_PATH_LOW} and ${VIDEO_PATH_HIGH} to archive dir $ARCHIVE_DIR"
+    mv -v ${VIDEO_PATH_LOW} ${VIDEO_PATH_HIGH} $ARCHIVE_DIR >> $LOGFILE 2>&1
+
+    if [ "$RETVAL_LOW" -eq 0 ] && [ "$RETVAL_HIGH" -eq 0 ]; then
+        log "Removing processing dir $PROCESS_DIR"
+        rm -rf $PROCESS_DIR
+    else
+        log "ERROR: night timelapse failed - keeping $PROCESS_DIR for inspection/retry"
+    fi
 }
 
 usage() {

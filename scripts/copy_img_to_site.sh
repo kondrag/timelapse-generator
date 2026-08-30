@@ -16,11 +16,14 @@ FTP_DIR="/srv/ftp/$CAMERA_NAME"
 WEEWX_DIR="/tmp/weewx"
 SITE_DIR="$WEEWX_DIR/$SITE_NAME"
 
+mkdir -p "$SITE_DIR"
+chmod 0775 "$SITE_DIR"
+
 cd $FTP_DIR
 latest=$(ls -t *.jpg | head -n 2 | tail -n 1)
 
 RETVAL=$?
 
 if [ "$RETVAL" = "0" ]; then
-    convert "$latest" -resize "1280x720" "$SITE_DIR/latest.jpg"
+    convert "$latest" -resize "1280x720" "$SITE_DIR/snapshot.jpg"
 fi

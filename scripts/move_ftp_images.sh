@@ -17,21 +17,25 @@ USER=greg
 
 echo "===== $(date) - Moving $1 images to $PROCESS_DIR =====" >> $LOGFILE
 
-echo "PATH is $PATH" >> $LOGFILE
-echo "PATH is $PATH" >> $LOGFILE
-echo "Updated PATH is $PATH" >> $LOGFILE
+log "PATH is $PATH"
 
-cd $FTP_DIR
+cd $FTP_DIR || { log "ERROR: cannot cd to $FTP_DIR, aborting image move"; exit 1; }
 mkdir -p $PROCESS_DIR
 chown -R $USER:$USER $ARCHIVE_DIR
 chmod -R 0755 $ARCHIVE_DIR
 
-echo "There are $(ls -1 *.jpg | wc -l) images in $(pwd)" >> $LOGFILE
-echo "Moving JPG images..." >> $LOGFILE
-mv *.jpg $PROCESS_DIR
-echo "There are $(ls -1 *.jpg | wc -l) images in $(pwd)" >> $LOGFILE
+log "FTP_DIR before move: $(jpg_stats $FTP_DIR)"
+if [ "$(ls -1 $FTP_DIR/*.jpg 2>/dev/null | wc -l)" -eq 0 ]; then
+    log "WARNING: no JPG images found in $FTP_DIR - the camera may be offline or images were already moved"
+fi
+log "Moving JPG images..."
+START=$SECONDS
+mv *.jpg $PROCESS_DIR 2>> $LOGFILE
+log "move completed in $((SECONDS - START))s"
+log "FTP_DIR after move: $(jpg_stats $FTP_DIR)"
 
-cd $PROCESS_DIR
-echo "There are $(ls -1 *.jpg | wc -l) images in $(pwd)" >> $LOGFILE
-chown $USER:$USER *.jpg
-chmod 644 *.jpg
+cd $PROCESS_DIR || { log "ERROR: cannot cd to $PROCESS_DIR"; exit 1; }
+log "PROCESS_DIR after move: $(jpg_stats $PROCESS_DIR)"
+chown -R $USER:$USER $PROCESS_DIR
+find $PROCESS_DIR -type f -exec chmod 644 {} +
+log "PROCESS_DIR ownership and permissions fixed"
