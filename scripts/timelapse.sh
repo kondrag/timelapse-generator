@@ -20,6 +20,7 @@ cleanup_old_dirs() {
 }
 
 VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
+VAAPI_QP=${VAAPI_QP:-27}
 ENCODER_BACKEND=""
 
 detect_encoder_backend() {
@@ -76,7 +77,7 @@ generate_timelapse_ffmpeg() {
     detect_encoder_backend
     if [ "${ENCODER_BACKEND}" = "vaapi" ]; then
         nice -n 19 ffmpeg -vaapi_device "${VAAPI_DEVICE}" -framerate 60 -pattern_type glob \
-            -i "${INPUT_DIR}/*.jpg" -c:v h264_vaapi -qp 23 \
+            -i "${INPUT_DIR}/*.jpg" -c:v h264_vaapi -qp "${VAAPI_QP}" \
             -vf "scale=${RESOLUTION/x/:},format=nv12,hwupload" \
             "$OUTPUT_FILEPATH" >> $LOGFILE 2>&1
     else

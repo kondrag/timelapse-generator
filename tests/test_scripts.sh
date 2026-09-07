@@ -343,6 +343,34 @@ test_timelapse_uses_vaapi_when_available() {
         "y|y|y|n|y" "$VHW|$VDEV|$VUP|$NOSW|$BACKEND"
 }
 
+test_vaapi_qp_configurable() {
+    sandbox
+    win_bounds
+    mk_fakebin
+    mkdir -p "$SBX/ftp" "$SBX/wx/aurora"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    local FFMPEG_LOG=$SBX/ffmpeg.args
+    export FFMPEG_LOG
+    run_timelapse night
+    local QP27 NO23
+    grep -q -- '-qp 27' "$FFMPEG_LOG" && QP27=y || QP27=n
+    grep -q -- '-qp 23' "$FFMPEG_LOG" && NO23=y || NO23=n
+    check "vaapi default qp is 27" "y|n" "$QP27|$NO23"
+
+    sandbox
+    win_bounds
+    mk_fakebin
+    mkdir -p "$SBX/ftp" "$SBX/wx/aurora"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    FFMPEG_LOG=$SBX/ffmpeg.args
+    export FFMPEG_LOG
+    VAAPI_QP=30 run_timelapse night
+    grep -q -- '-qp 30' "$FFMPEG_LOG" && QP27=y || QP27=n
+    check "vaapi qp overridable via VAAPI_QP" "y" "$QP27"
+}
+
 test_timelapse_falls_back_to_libx264_when_probe_fails() {
     sandbox
     win_bounds
