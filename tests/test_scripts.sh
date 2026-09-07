@@ -352,6 +352,29 @@ EOF
         "0|9|x|x|y|y|y" "$RC|$NFILES|$SETUP_EXEC|$HEAL_EXEC|$ACLDIR|$ACLRECURS|$CRONSTATUS"
 }
 
+test_deploy_skips_copy_when_dest_symlinks_to_source() {
+    sandbox
+    mkdir -p "$SBX/ftp"
+    printf 'JPG' > "$SBX/ftp/AuroraCam_00_20260907093000.jpg"
+    cat > "$SBX/fakesetfacl" <<'EOF'
+#!/usr/bin/env bash
+echo "$@" >> "$ACL_LOG"
+exit 0
+EOF
+    chmod +x "$SBX/fakesetfacl"
+    ln -s "$(pwd)/scripts" "$SBX/dest"
+    local OUT RC SKIPPED ACLDIR
+    local ACL_LOG=$SBX/acl.log
+    export ACL_LOG
+    OUT=$(DEST_DIR="$SBX/dest" FTP_DIR="$SBX/ftp" \
+        SETFACL_CMD="$SBX/fakesetfacl" CRONTAB_CMD=true \
+        bash scripts/deploy.sh 2>&1); RC=$?
+    grep -q 'linked' <<<"$OUT" && SKIPPED=y || SKIPPED=n
+    grep -q -- '-m u:greg:rwx,d:u:greg:rwx' "$SBX/acl.log" && ACLDIR=y || ACLDIR=n
+    check "deploy detects symlinked dest, skips copy, still applies ACLs" \
+        "0|y|y" "$RC|$SKIPPED|$ACLDIR"
+}
+
 test_deploy_refuses_default_dest_without_root() {
     sandbox
     local OUT RC REFUSED FAILED

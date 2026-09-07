@@ -19,13 +19,17 @@ fi
 
 mkdir -p "$DEST_DIR" || { echo "ERROR: cannot create $DEST_DIR" >&2; exit 1; }
 
-echo "== copying scripts to $DEST_DIR =="
-for f in "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/sun.py "$SCRIPT_DIR"/requirements.txt; do
-    [ -e "$f" ] || continue
-    [ "$(basename "$f")" = "deploy.sh" ] && continue
-    cp -p "$f" "$DEST_DIR/" || { echo "ERROR: copy failed: $f" >&2; exit 1; }
-    echo "  installed: $(basename "$f")"
-done
+if [ "$SCRIPT_DIR" -ef "$DEST_DIR" ]; then
+    echo "== $DEST_DIR is linked to this workspace; skipping copy =="
+else
+    echo "== copying scripts to $DEST_DIR =="
+    for f in "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/sun.py "$SCRIPT_DIR"/requirements.txt; do
+        [ -e "$f" ] || continue
+        [ "$(basename "$f")" = "deploy.sh" ] && continue
+        cp -p "$f" "$DEST_DIR/" || { echo "ERROR: copy failed: $f" >&2; exit 1; }
+        echo "  installed: $(basename "$f")"
+    done
+fi
 
 echo "== applying ACLs on $FTP_DIR =="
 # Directory + default ACL so future uploads inherit access for ACL_USER.
