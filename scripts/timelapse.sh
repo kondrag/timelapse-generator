@@ -122,7 +122,10 @@ process_day() {
     local VIDEO_FILENAME="CloudCam_${TODAY}_${LOW_RES}.mp4"
 
     log "expected day window: dawn $(python3 ${SCRIPT_DIR}/sun.py --dawn 2>/dev/null || echo '?') to dusk $(python3 ${SCRIPT_DIR}/sun.py --dusk 2>/dev/null || echo '?')"
-    
+
+    # If the scheduled move job never ran, recover today's images ourselves
+    ${SCRIPT_DIR}/self_heal_move.sh day
+
     # Generate Low Res Video
     local VIDEO_PATH RETVAL
     VIDEO_PATH=$(generate_timelapse_ffmpeg "veryfast" "${LOW_RES}" "${PROCESS_DIR}" "${VIDEO_FILENAME}")
@@ -132,7 +135,11 @@ process_day() {
     
     echo "$(date) Finding noon thumbnail image..." >> $LOGFILE
     local THUMBNAIL=$(find ${PROCESS_DIR} -name "AuroraCam_00_$(date +%Y%m%d)*.jpg" -newermt "$(date +%Y-%m-%d) 12:00" -type f -not -path "*/bad_frames/*" | sort | head -1)
-    echo "$(date) Using ${THUMBNAIL} as thumbnail image" >> $LOGFILE
+    if [ -n "$THUMBNAIL" ]; then
+        echo "$(date) Using ${THUMBNAIL} as thumbnail image" >> $LOGFILE
+    else
+        echo "$(date) No thumbnail found." >> $LOGFILE
+    fi
 
     if [ "${RETVAL}" = "0" ]; then
         echo "$(date) - Daylight Timelapse video created successfully." >> $LOGFILE
@@ -171,7 +178,10 @@ process_night() {
     local HIGH_RES_FILENAME="AuroraCam_${TODAY}_${HIGH_RES}.mp4"
 
     log "expected night window: dusk $(python3 ${SCRIPT_DIR}/sun.py --dusk 2>/dev/null || echo '?') yesterday to dawn $(python3 ${SCRIPT_DIR}/sun.py --dawn 2>/dev/null || echo '?') today"
-    
+
+    # If the scheduled move job never ran, recover last night's images ourselves
+    ${SCRIPT_DIR}/self_heal_move.sh night
+
     # Generate Low Res
     local VIDEO_PATH_LOW RETVAL_LOW
     VIDEO_PATH_LOW=$(generate_timelapse_ffmpeg "veryfast" "${LOW_RES}" "${PROCESS_DIR}" "${LOW_RES_FILENAME}")
@@ -181,7 +191,11 @@ process_night() {
 
     echo "Finding midnight thumbnail image..." >> $LOGFILE
     local THUMBNAIL=$(ls ${PROCESS_DIR}/AuroraCam_00_$(date +%Y%m%d)*.jpg 2>/dev/null | sort | head -1)
-    echo "Using ${THUMBNAIL} as thumbnail image" >> $LOGFILE
+    if [ -n "$THUMBNAIL" ]; then
+        echo "Using ${THUMBNAIL} as thumbnail image" >> $LOGFILE
+    else
+        echo "No thumbnail found." >> $LOGFILE
+    fi
 
     if [ "${RETVAL_LOW}" = "0" ]; then
         echo "$(date) - Copying ${LOW_RES} video to weewx" >> $LOGFILE
@@ -214,9 +228,17 @@ process_night() {
         log "$(date) - ERROR: nighttime timelapse incomplete (LOW=$RETVAL_LOW HIGH=$RETVAL_HIGH)"
     fi
 
-    ls -al ${PROCESS_DIR}/*.mp4 >> $LOGFILE 2>&1
-    log "$(date) - Moving ${VIDEO_PATH_LOW} and ${VIDEO_PATH_HIGH} to archive dir $ARCHIVE_DIR"
-    mv -v ${VIDEO_PATH_LOW} ${VIDEO_PATH_HIGH} $ARCHIVE_DIR >> $LOGFILE 2>&1
+    local VF MOVED=0
+    for VF in "${VIDEO_PATH_LOW}" "${VIDEO_PATH_HIGH}"; do
+        if [ -f "${VF}" ]; then
+            ls -al "${VF}" >> $LOGFILE 2>&1
+            mv -v "${VF}" $ARCHIVE_DIR >> $LOGFILE 2>&1
+            MOVED=1
+        fi
+    done
+    if [ "$MOVED" -eq 0 ]; then
+        log "no completed videos to move to $ARCHIVE_DIR"
+    fi
 
     if [ "$RETVAL_LOW" -eq 0 ] && [ "$RETVAL_HIGH" -eq 0 ]; then
         log "Removing processing dir $PROCESS_DIR"

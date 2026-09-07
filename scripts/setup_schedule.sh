@@ -22,10 +22,8 @@ OFFSET_MINUTES=5
 DAWN_PLUS_OFFSET=$(date -d "$DAWN today + $OFFSET_MINUTES minutes" +%H:%M)
 DUSK_PLUS_OFFSET=$(date -d "$DUSK today + $OFFSET_MINUTES minutes" +%H:%M)
 
-# rotate to a timestamped name so history is never clobbered by a second invocation
-mv $LOGFILE "${LOGFILE}.$(date +%Y%m%d_%H%M%S)" 2>/dev/null
-echo "Initialize logs for $(date)" > $LOGFILE
-chmod 666 $LOGFILE
+# rotate to a unique timestamped+user+pid name; race-safe (see common_env.sh)
+rotate_log
 
 log "=== setup_schedule.sh invoked by $(id -un) with option '$OPTION' ==="
 log "local time: $(date), UTC: $(date -u), TZ: $(date +%Z)"
@@ -45,17 +43,17 @@ warn_if_passed() {
 if [ "$OPTION" == "images" ]; then
     warn_if_passed "$DAWN" "dawn"
     log "scheduling: move_ftp_images.sh night at $DAWN"
-    { echo "${SCRIPT_DIR}/move_ftp_images.sh night" | at $DAWN 2>&1; } >> $LOGFILE
+    schedule_and_verify "$DAWN" "${SCRIPT_DIR}/move_ftp_images.sh night"
     warn_if_passed "$DUSK" "dusk"
     log "scheduling: move_ftp_images.sh day at $DUSK"
-    { echo "${SCRIPT_DIR}/move_ftp_images.sh day" | at $DUSK 2>&1; } >> $LOGFILE
+    schedule_and_verify "$DUSK" "${SCRIPT_DIR}/move_ftp_images.sh day"
 elif [ "$OPTION" == "timelapse" ]; then
     warn_if_passed "$DAWN_PLUS_OFFSET" "dawn+offset"
     log "scheduling: timelapse.sh night at $DAWN_PLUS_OFFSET"
-    { echo "${SCRIPT_DIR}/timelapse.sh night" | at $DAWN_PLUS_OFFSET 2>&1; } >> $LOGFILE
+    schedule_and_verify "$DAWN_PLUS_OFFSET" "${SCRIPT_DIR}/timelapse.sh night"
     warn_if_passed "$DUSK_PLUS_OFFSET" "dusk+offset"
     log "scheduling: timelapse.sh day at $DUSK_PLUS_OFFSET"
-    { echo "${SCRIPT_DIR}/timelapse.sh day" | at $DUSK_PLUS_OFFSET 2>&1; } >> $LOGFILE
+    schedule_and_verify "$DUSK_PLUS_OFFSET" "${SCRIPT_DIR}/timelapse.sh day"
 else
     usage
 fi
