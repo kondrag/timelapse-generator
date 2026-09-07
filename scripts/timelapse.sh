@@ -19,6 +19,23 @@ cleanup_old_dirs() {
     find $TIMELAPSE_DIR -type d -mtime +30 -print -exec rm -rf {} + >> $LOGFILE
 }
 
+VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
+ENCODER_BACKEND=""
+
+detect_encoder_backend() {
+    if [ -n "${ENCODER_BACKEND}" ]; then
+        return 0
+    fi
+    if nice -n 19 ffmpeg -hide_banner -loglevel error -vaapi_device "${VAAPI_DEVICE}" \
+        -f lavfi -i testsrc=duration=1:size=320x240:rate=10 \
+        -vf format=nv12,hwupload -c:v h264_vaapi -f null - >>"$LOGFILE" 2>&1; then
+        ENCODER_BACKEND=vaapi
+    else
+        ENCODER_BACKEND=libx264
+    fi
+    log "encoder backend: ${ENCODER_BACKEND}"
+}
+
 generate_timelapse_ffmpeg() {
     local PRESET=$1
     local RESOLUTION=$2
@@ -56,7 +73,17 @@ generate_timelapse_ffmpeg() {
     log "disk space available for output: $(df --output=avail -h "${INPUT_DIR}" 2>/dev/null | tail -1)"
 
     log "$(date) - Creating timelapse video with ffmpeg..."
-    nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" -c:v libx264 -threads 4 -preset ${PRESET} -vf scale=${RESOLUTION/x/:} -pix_fmt yuv420p "$OUTPUT_FILEPATH" >> $LOGFILE 2>&1
+    detect_encoder_backend
+    if [ "${ENCODER_BACKEND}" = "vaapi" ]; then
+        nice -n 19 ffmpeg -vaapi_device "${VAAPI_DEVICE}" -framerate 60 -pattern_type glob \
+            -i "${INPUT_DIR}/*.jpg" -c:v h264_vaapi -qp 23 \
+            -vf "scale=${RESOLUTION/x/:},format=nv12,hwupload" \
+            "$OUTPUT_FILEPATH" >> $LOGFILE 2>&1
+    else
+        nice -n 19 ffmpeg -threads 4 -framerate 60 -pattern_type glob -i "${INPUT_DIR}/*.jpg" \
+            -c:v libx264 -threads 4 -preset ${PRESET} -vf scale=${RESOLUTION/x/:} \
+            -pix_fmt yuv420p "$OUTPUT_FILEPATH" >> $LOGFILE 2>&1
+    fi
     RETVAL="${?}"
     log "$(date) - timelapse video creation return value: $RETVAL"
 

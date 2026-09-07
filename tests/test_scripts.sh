@@ -231,13 +231,23 @@ mk_jpg() {  # mk_jpg <dir> <epoch-seconds>
     printf 'JPGDATA' > "$1/AuroraCam_00_$(ts "$2").jpg"
 }
 
-mk_fakebin() {  # mk_fakebin [fail]  - ffmpeg fails when "fail" given
+mk_fakebin() {  # mk_fakebin [fail|probe-fail]  - ffmpeg fails when "fail" given;
+    #               "probe-fail" fails ONLY vaapi probes (args contain lavfi)
     FAKEBIN=$SBX/fakebin
     mkdir -p "$FAKEBIN"
     if [ "${1:-}" = "fail" ]; then
-        printf '#!/bin/bash\nexit 1\n' > "$FAKEBIN/ffmpeg"
+        printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> "${FFMPEG_LOG:-/dev/null}"\nexit 1\n' > "$FAKEBIN/ffmpeg"
+    elif [ "${1:-}" = "probe-fail" ]; then
+        cat > "$FAKEBIN/ffmpeg" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${FFMPEG_LOG:-/dev/null}"
+case "$*" in *lavfi*) exit 1;; esac
+OUT="${@: -1}"
+printf X > "$OUT"
+exit 0
+EOF
     else
-        printf '#!/bin/bash\nOUT="${@: -1}"\nprintf X > "$OUT"\nexit 0\n' > "$FAKEBIN/ffmpeg"
+        printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> "${FFMPEG_LOG:-/dev/null}"\nOUT="${@: -1}"\nprintf X > "$OUT"\nexit 0\n' > "$FAKEBIN/ffmpeg"
     fi
     cat > "$FAKEBIN/ffprobe" <<'EOF'
 #!/bin/bash
@@ -311,6 +321,44 @@ test_timelapse_night_failure_guards() {
     grep -q 'Using  as thumbnail' "$SBX/log" && EMPTYTHUMB=yes || EMPTYTHUMB=no
     check "failed encode keeps dir, no bogus mv, no empty-thumb log" \
         "yes|no|no" "$KEPT|$MVNOISE|$EMPTYTHUMB"
+}
+
+test_timelapse_uses_vaapi_when_available() {
+    sandbox
+    win_bounds
+    mk_fakebin
+    mkdir -p "$SBX/ftp" "$SBX/wx/aurora"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    local FFMPEG_LOG=$SBX/ffmpeg.args
+    export FFMPEG_LOG
+    run_timelapse night
+    local VHW VDEV VUP NOSW BACKEND
+    grep -q 'h264_vaapi' "$FFMPEG_LOG" && VHW=y || VHW=n
+    grep -q 'vaapi_device' "$FFMPEG_LOG" && VDEV=y || VDEV=n
+    grep -q 'hwupload' "$FFMPEG_LOG" && VUP=y || VUP=n
+    grep -q 'libx264' "$FFMPEG_LOG" && NOSW=y || NOSW=n
+    grep -q 'encoder backend: vaapi' "$SBX/log" && BACKEND=y || BACKEND=n
+    check "vaapi backend chosen when probe succeeds" \
+        "y|y|y|n|y" "$VHW|$VDEV|$VUP|$NOSW|$BACKEND"
+}
+
+test_timelapse_falls_back_to_libx264_when_probe_fails() {
+    sandbox
+    win_bounds
+    mk_fakebin probe-fail
+    mkdir -p "$SBX/ftp" "$SBX/wx/aurora"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    local FFMPEG_LOG=$SBX/ffmpeg.args
+    export FFMPEG_LOG
+    run_timelapse night
+    local SW BACKEND MP4S
+    grep -q 'libx264' "$FFMPEG_LOG" && SW=y || SW=n
+    grep -q 'encoder backend: libx264' "$SBX/log" && BACKEND=y || BACKEND=n
+    MP4S=$(ls -1 "$SBX/tl/$(/bin/date +%Y%m%d)"/*.mp4 2>/dev/null | wc -l)
+    check "libx264 fallback when vaapi probe fails, encode still succeeds" \
+        "y|y|2" "$SW|$BACKEND|$MP4S"
 }
 
 # ---------------------------------------------------------------- deploy.sh
