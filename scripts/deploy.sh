@@ -37,9 +37,10 @@ echo "== applying ACLs on $FTP_DIR =="
     echo "ERROR: dir ACL failed on $FTP_DIR" >&2
     exit 1
 }
-# One-time recursive pass so existing ftp-owned files become readable.
-"$SETFACL_CMD" -R -m "u:${ACL_USER}:rw" "$FTP_DIR" || {
-    echo "ERROR: recursive ACL failed on $FTP_DIR" >&2
+# One-time pass over existing ftp-owned FILES only (not the dir itself —
+# a recursive pass would strip the dir's x bit and break traversal).
+find "$FTP_DIR" -type f -exec "$SETFACL_CMD" -m "u:${ACL_USER}:rw" {} + || {
+    echo "ERROR: file ACL pass failed on $FTP_DIR" >&2
     exit 1
 }
 echo "  ok: ${ACL_USER} can read/move images"

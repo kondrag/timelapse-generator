@@ -346,10 +346,12 @@ EOF
     [ -x "$SBX/opt/setup_schedule.sh" ] && SETUP_EXEC=x || SETUP_EXEC=-
     [ -x "$SBX/opt/self_heal_move.sh" ] && HEAL_EXEC=x || HEAL_EXEC=-
     grep -q -- '-m u:greg:rwx,d:u:greg:rwx' "$SBX/acl.log" && ACLDIR=y || ACLDIR=n
-    grep -q -- '-R -m u:greg:rw ' "$SBX/acl.log" && ACLRECURS=y || ACLRECURS=n
+    grep -q -- "-m u:greg:rw $SBX/ftp/AuroraCam_00_20260907093000.jpg" "$SBX/acl.log" \
+        && ACLFILE=y || ACLFILE=n
+    grep -q -- '-R' "$SBX/acl.log" && ACLRECURS=y || ACLRECURS=n
     grep -q 'setup_schedule.sh images' <<<"$OUT" && CRONSTATUS=y || CRONSTATUS=n
-    check "deploy copies 9 files +x, applies both ACLs, prints cron status" \
-        "0|9|x|x|y|y|y" "$RC|$NFILES|$SETUP_EXEC|$HEAL_EXEC|$ACLDIR|$ACLRECURS|$CRONSTATUS"
+    check "deploy copies 9 files +x, dir+file ACLs, no recursive dir clobber, prints cron status" \
+        "0|9|x|x|y|y|n|y" "$RC|$NFILES|$SETUP_EXEC|$HEAL_EXEC|$ACLDIR|$ACLFILE|$ACLRECURS|$CRONSTATUS"
 }
 
 test_deploy_skips_copy_when_dest_symlinks_to_source() {
