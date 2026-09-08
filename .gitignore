@@ -204,3 +204,5 @@ Thumbs.db
 # Config files (may contain sensitive data)
 config.yaml
 config.yml
+# Vim swap files
+*.swp
