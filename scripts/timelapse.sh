@@ -21,6 +21,7 @@ cleanup_old_dirs() {
 
 VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
 VAAPI_QP=${VAAPI_QP:-27}
+VAAPI_QP_LOW=${VAAPI_QP_LOW:-30}
 ENCODER_BACKEND=""
 
 detect_encoder_backend() {
@@ -76,8 +77,10 @@ generate_timelapse_ffmpeg() {
     log "$(date) - Creating timelapse video with ffmpeg..."
     detect_encoder_backend
     if [ "${ENCODER_BACKEND}" = "vaapi" ]; then
+        QP="${VAAPI_QP}"
+        [ "${RESOLUTION}" = "${LOW_RES}" ] && QP="${VAAPI_QP_LOW}"
         nice -n 19 ffmpeg -vaapi_device "${VAAPI_DEVICE}" -framerate 60 -pattern_type glob \
-            -i "${INPUT_DIR}/*.jpg" -c:v h264_vaapi -qp "${VAAPI_QP}" \
+            -i "${INPUT_DIR}/*.jpg" -c:v h264_vaapi -qp "${QP}" \
             -vf "scale=${RESOLUTION/x/:},format=nv12,hwupload" \
             "$OUTPUT_FILEPATH" >> $LOGFILE 2>&1
     else
@@ -180,6 +183,9 @@ process_day() {
             echo "$(date) Resizing thumbnail to ${LOW_RES}..." >> $LOGFILE
             convert "${THUMBNAIL}" -resize ${LOW_RES} "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY}.thumbnail.jpg"
             echo "$(date) thumbnail creation return value: $?" >> $LOGFILE
+            # Persist a copy in the archive so reboots can restore it
+            # (link_archive_to_site.sh).
+            cp -v "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY}.thumbnail.jpg" "${ARCHIVE_DIR}/CloudCam_${TODAY}.thumbnail.jpg" >> $LOGFILE
         else
             echo "$(date) No thumbnail found." >> $LOGFILE
         fi
@@ -237,6 +243,9 @@ process_night() {
             echo "Resizing thumbnail to ${LOW_RES}..." >> $LOGFILE
             convert "${THUMBNAIL}" -resize ${LOW_RES} "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.thumbnail.jpg"
             echo "Thumbnail creation return value: $?" >> $LOGFILE 
+            # Persist a copy in the archive so reboots can restore it
+            # (link_archive_to_site.sh).
+            cp -v "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.thumbnail.jpg" "${ARCHIVE_DIR}/AuroraCam_${TODAY}.thumbnail.jpg" >> $LOGFILE
         fi
     fi
 

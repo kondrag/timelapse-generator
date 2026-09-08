@@ -371,6 +371,34 @@ test_vaapi_qp_configurable() {
     check "vaapi qp overridable via VAAPI_QP" "y" "$QP27"
 }
 
+test_vaapi_qp_low_res_uses_30() {
+    sandbox
+    win_bounds
+    mk_fakebin
+    mkdir -p "$SBX/ftp" "$SBX/wx/aurora"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    local FFMPEG_LOG=$SBX/ffmpeg.args
+    export FFMPEG_LOG
+    run_timelapse night
+    local N30 N27
+    N30=$(grep -c -- '-qp 30' "$FFMPEG_LOG")
+    N27=$(grep -c -- '-qp 27' "$FFMPEG_LOG")
+    check "night: low-res encoded at qp 30, high-res at qp 27" "1|1" "$N30|$N27"
+
+    sandbox
+    win_bounds
+    mk_fakebin
+    mkdir -p "$SBX/ftp" "$SBX/wx/aurora"
+    mk_jpg "$SBX/ftp" "$DAY_LO_E"
+    mk_jpg "$SBX/ftp" "$DAY_HI_E"
+    FFMPEG_LOG=$SBX/ffmpeg.args
+    export FFMPEG_LOG
+    VAAPI_QP_LOW=25 run_timelapse day
+    grep -q -- '-qp 25' "$FFMPEG_LOG" && N27=y || N27=n
+    check "day: low-res qp overridable via VAAPI_QP_LOW" "y" "$N27"
+}
+
 test_timelapse_falls_back_to_libx264_when_probe_fails() {
     sandbox
     win_bounds
