@@ -438,14 +438,15 @@ fi
 exit 1
 EOF
     chmod +x "$SBX/fakecrontab"
-    local OUT RC
+    local OUT RC EXPECTED_N NFILES SETUP_EXEC HEAL_EXEC ACLDIR ACLFILE ACLRECURS CRONSTATUS
+    EXPECTED_N=$(ls "$PWD"/scripts/*.sh "$PWD"/scripts/sun.py "$PWD"/scripts/requirements.txt 2>/dev/null \
+        | grep -v 'deploy\.sh$' | wc -l)
     local ACL_LOG=$SBX/acl.log
     export ACL_LOG
     OUT=$(DEST_DIR="$SBX/opt" FTP_DIR="$SBX/ftp" \
         SETFACL_CMD="$SBX/fakesetfacl" \
         CRONTAB_CMD="$SBX/fakecrontab" \
         bash scripts/deploy.sh 2>&1); RC=$?
-    local NFILES SETUP_EXEC HEAL_EXEC ACLDIR ACLRECURS CRONSTATUS
     NFILES=$(ls -1 "$SBX/opt" | wc -l)
     [ -x "$SBX/opt/setup_schedule.sh" ] && SETUP_EXEC=x || SETUP_EXEC=-
     [ -x "$SBX/opt/self_heal_move.sh" ] && HEAL_EXEC=x || HEAL_EXEC=-
@@ -454,8 +455,8 @@ EOF
         && ACLFILE=y || ACLFILE=n
     grep -q -- '-R' "$SBX/acl.log" && ACLRECURS=y || ACLRECURS=n
     grep -q 'setup_schedule.sh images' <<<"$OUT" && CRONSTATUS=y || CRONSTATUS=n
-    check "deploy copies 9 files +x, dir+file ACLs, no recursive dir clobber, prints cron status" \
-        "0|9|x|x|y|y|n|y" "$RC|$NFILES|$SETUP_EXEC|$HEAL_EXEC|$ACLDIR|$ACLFILE|$ACLRECURS|$CRONSTATUS"
+    check "deploy copies all scripts +x, dir+file ACLs, no recursive dir clobber, prints cron status" \
+        "0|${EXPECTED_N}|x|x|y|y|n|y" "$RC|$NFILES|$SETUP_EXEC|$HEAL_EXEC|$ACLDIR|$ACLFILE|$ACLRECURS|$CRONSTATUS"
 }
 
 test_deploy_skips_copy_when_dest_symlinks_to_source() {
