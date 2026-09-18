@@ -492,3 +492,115 @@ def test_disabled_returns_disabled(configured, monkeypatch):
     )
     result = upload_night_for_date(DAY)
     assert result.status == "disabled"
+
+
+from click.testing import CliRunner
+
+from timelapse_generator import cli as cli_module
+from timelapse_generator.cli import cli as cli_group
+from timelapse_generator.youtube.night_upload import parse_date_arg
+
+
+def test_parse_date_arg_variants():
+    assert parse_date_arg(None) == datetime.now().astimezone().date()
+    assert parse_date_arg("20260916") == date(2026, 9, 16)
+    assert parse_date_arg("2026-09-16") == date(2026, 9, 16)
+    with pytest.raises(ValueError):
+        parse_date_arg("09/16/2026")
+    with pytest.raises(ValueError):
+        parse_date_arg("2026091")
+
+
+def test_cli_uploaded_exit_zero(monkeypatch):
+    captured = {}
+
+    def fake(date, dry_run=False, force=False, threshold=None):
+        captured.update(date=date, dry_run=dry_run, force=force, threshold=threshold)
+        return NightUploadResult(
+            status="uploaded",
+            max_kp=5.33,
+            video_id="abc",
+            url="https://www.youtube.com/watch?v=abc",
+        )
+
+    monkeypatch.setattr(cli_module, "upload_night_for_date", fake)
+    result = CliRunner().invoke(cli_group, ["upload-night", "20260916"])
+    assert result.exit_code == 0, result.output
+    assert captured["date"] == date(2026, 9, 16)
+    assert captured["dry_run"] is False
+    assert "abc" in result.output
+
+
+def test_cli_flags_forwarded(monkeypatch):
+    captured = {}
+
+    def fake(date, dry_run=False, force=False, threshold=None):
+        captured.update(date=date, dry_run=dry_run, force=force, threshold=threshold)
+        return NightUploadResult(status="uploaded")
+
+    monkeypatch.setattr(cli_module, "upload_night_for_date", fake)
+    result = CliRunner().invoke(
+        cli_group,
+        ["upload-night", "2026-09-16", "--dry-run", "--force", "--threshold", "5.5"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured == {
+        "date": date(2026, 9, 16),
+        "dry_run": True,
+        "force": True,
+        "threshold": 5.5,
+    }
+
+
+def test_cli_failed_exits_one(monkeypatch):
+    def fake(date, dry_run=False, force=False, threshold=None):
+        return NightUploadResult(status="failed", error="boom")
+
+    monkeypatch.setattr(cli_module, "upload_night_for_date", fake)
+    result = CliRunner().invoke(cli_group, ["upload-night"])
+    assert result.exit_code == 1
+    assert "boom" in result.output
+
+
+def test_cli_invalid_date_exits_one():
+    result = CliRunner().invoke(cli_group, ["upload-night", "garbage"])
+    assert result.exit_code == 1
+
+
+def test_cli_no_op_and_skipped_exit_zero(monkeypatch):
+    cases = [
+        (NightUploadResult(status="no_op", reason="missing_video"), "retry"),
+        (NightUploadResult(status="skipped_low_kp", max_kp=2.0), "below threshold"),
+        (NightUploadResult(status="disabled"), "disabled"),
+        (
+            NightUploadResult(status="already_done", reason="uploaded"),
+            "Already handled",
+        ),
+    ]
+    for stub, needle in cases:
+        monkeypatch.setattr(cli_module, "upload_night_for_date", lambda *a, **k: stub)
+        result = CliRunner().invoke(cli_group, ["upload-night", "20260916"])
+        assert result.exit_code == 0, result.output
+        assert needle.lower() in result.output.lower()
+
+
+def test_cli_dry_run_prints_decision(monkeypatch):
+    def fake(date, dry_run=False, force=False, threshold=None):
+        assert dry_run is True
+        return NightUploadResult(
+            status="dry_run",
+            max_kp=5.33,
+            metadata={
+                "title": "Aurora Timelapse - September 16, 2026 (Kp 5.33)",
+                "description": "desc",
+                "tags": ["timelapse", "aurora"],
+                "privacy_status": "private",
+            },
+        )
+
+    monkeypatch.setattr(cli_module, "upload_night_for_date", fake)
+    result = CliRunner().invoke(cli_group, ["upload-night", "20260916", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "would upload" in result.output.lower()
+    assert "Aurora Timelapse - September 16, 2026" in result.output
+    assert "private" in result.output.lower()

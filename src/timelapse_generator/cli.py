@@ -14,6 +14,7 @@ from .weather.noaa_client import NOAAClient
 from .weather.kp_parser import KpIndexParser
 from .youtube.uploader import YouTubeUploader
 from .youtube.metadata import MetadataManager
+from .youtube.night_upload import parse_date_arg, upload_night_for_date
 
 logger = get_logger(__name__)
 
@@ -502,6 +503,50 @@ def backend_info():
     except Exception as e:
         logger.error(f"Failed to get backend info: {e}")
         sys.exit(1)
+
+
+@cli.command(name='upload-night')
+@click.argument('date', required=False, type=str)
+@click.option('--dry-run', is_flag=True, help='Show the decision without uploading or updating state')
+@click.option('--force', is_flag=True, help='Bypass the Kp gate and a prior skipped_low_kp state')
+@click.option('--threshold', type=float, default=None, help='Override the configured Kp threshold')
+def upload_night(date, dry_run, force, threshold):
+    """Upload the night high-res AuroraCam video for DATE (YYYYMMDD or YYYY-MM-DD, default today)."""
+    try:
+        target = parse_date_arg(date)
+    except ValueError as e:
+        click.echo(f"\u274c {e}")
+        sys.exit(1)
+
+    result = upload_night_for_date(target, dry_run=dry_run, force=force, threshold=threshold)
+
+    if result.status == "disabled":
+        click.echo("Night uploads are disabled (youtube.night_upload.enabled=false).")
+        return
+    if result.status == "no_op":
+        click.echo(f"Nothing to do for {target:%Y-%m-%d} ({result.reason}); a later poll will retry.")
+        return
+    if result.status == "already_done":
+        detail = result.url or f"previously skipped (max Kp {result.max_kp})"
+        click.echo(f"Already handled {target:%Y-%m-%d}: {detail}")
+        return
+    if result.status == "skipped_low_kp":
+        observed = "no samples in window" if result.max_kp is None else f"max Kp {result.max_kp}"
+        click.echo(f"\u23ed\ufe0f  Skipped {target:%Y-%m-%d}: {observed} below threshold.")
+        return
+    if result.status == "dry_run":
+        click.echo(f"\U0001f50d Dry run for {target:%Y-%m-%d}: would upload")
+        click.echo(f"Max Kp in window: {result.max_kp}")
+        click.echo(f"Title: {result.metadata['title']}")
+        click.echo(f"Description: {result.metadata['description']}")
+        click.echo(f"Tags: {', '.join(result.metadata['tags'])}")
+        click.echo(f"Privacy: {result.metadata['privacy_status']}")
+        return
+    if result.status == "failed":
+        click.echo(f"\u274c Upload failed for {target:%Y-%m-%d}: {result.error}")
+        sys.exit(1)
+
+    click.echo(f"\u2705 Uploaded {target:%Y-%m-%d}: {result.url} (max Kp {result.max_kp})")
 
 
 def main():

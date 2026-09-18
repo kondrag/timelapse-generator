@@ -292,3 +292,18 @@ def upload_night_for_date(
         video_id=upload_result["video_id"],
         url=upload_result["video_url"],
     )
+
+
+def parse_date_arg(value: Optional[str]) -> date:
+    """Parse a CLI date argument: None=today, YYYYMMDD, or YYYY-MM-DD."""
+    if value is None:
+        return datetime.now().astimezone().date()
+    value = value.strip()
+    if len(value) == 8 and value.isdigit():
+        return datetime.strptime(value, "%Y%m%d").date()
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(
+            f"invalid DATE {value!r}: use YYYYMMDD or YYYY-MM-DD"
+        ) from None
