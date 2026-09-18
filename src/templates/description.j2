@@ -1,0 +1,17 @@
+Night sky timelapse captured on {{ date | format_date('%B %d, %Y') }}{% if location %} from {{ location }}{% endif %}.
+
+{% if kp_index %}Space Weather Activity:
+- Kp Index: {{ kp_index | format_kp }}
+- {% if kp_index >= 7 %}Severe geomagnetic storm conditions were present{% elif kp_index >= 5 %}Geomagnetic storm conditions were present{% elif kp_index >= 4 %}Active geomagnetic conditions were present{% else %}Quiet geomagnetic conditions{% endif %}
+
+{% endif %}Video Details:
+{% if camera %}Camera: {{ camera }}
+{% endif %}{% if lens %}Lens: {{ lens }}
+{% endif %}{% if fps %}Frame Rate: {{ fps }} fps
+{% endif %}{% if total_frames %}Total Frames: {{ total_frames }}
+{% endif %}{% if duration %}Duration: {{ duration }} seconds
+{% endif %}
+
+Captured and processed with Timelapse Generator.
+
+#timelapse #astrophotography #nightsky{% if kp_index and kp_index >= 4 %} #aurora #northernlights{% endif %}

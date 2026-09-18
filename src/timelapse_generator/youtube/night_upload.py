@@ -175,3 +175,120 @@ def _state_record(
         "error": error,
         "timestamp": datetime.now().astimezone().isoformat(),
     }
+
+
+def upload_night_for_date(
+    date: date,
+    dry_run: bool = False,
+    force: bool = False,
+    threshold: Optional[float] = None,
+) -> NightUploadResult:
+    """Run the full night-upload decision for one date (spec Data Flow)."""
+    cfg = settings.youtube.night_upload
+    if not cfg.enabled:
+        return NightUploadResult(status="disabled")
+
+    date_key = date.strftime("%Y%m%d")
+    state_file = cfg.state_file.expanduser()
+    archive_dir = Path(cfg.archive_dir)
+
+    state = load_state(state_file)
+    entry = state.get(date_key)
+    if entry and entry.get("status") == "uploaded":
+        return NightUploadResult(
+            status="already_done",
+            reason="uploaded",
+            video_id=entry.get("video_id"),
+            url=entry.get("url"),
+        )
+    if entry and entry.get("status") == "skipped_low_kp" and not force:
+        return NightUploadResult(
+            status="already_done",
+            reason="already_skipped_low_kp",
+            max_kp=entry.get("max_kp"),
+        )
+
+    effective_threshold = threshold if threshold is not None else cfg.kp_threshold
+
+    try:
+        video = find_night_video(date, archive_dir)
+    except FileNotFoundError:
+        return NightUploadResult(status="no_op", reason="missing_video")
+
+    kp_path = archive_dir / date_key / f"k-index_{date_key}.json"
+    if not kp_path.exists():
+        return NightUploadResult(status="no_op", reason="missing_kp")
+
+    try:
+        series = load_kp_series(kp_path)
+    except KpDataError as exc:
+        if dry_run:
+            return NightUploadResult(status="failed", error=f"bad_kp_data: {exc}")
+        if not force:
+            record = _state_record(
+                date, "failed", effective_threshold, error=f"bad_kp_data: {exc}"
+            )
+            save_state(state_file, {**state, date_key: record})
+            return NightUploadResult(status="failed", error=f"bad_kp_data: {exc}")
+        logger.warning(f"Forced upload for {date} proceeds despite bad Kp data: {exc}")
+        series = []
+
+    window = night_window(
+        date,
+        latitude=cfg.latitude,
+        longitude=cfg.longitude,
+        tz_name=cfg.timezone,
+    )
+    max_kp = max_kp_in_window(series, window)
+    logger.info(f"Night window for {date}: {window}, max Kp in window: {max_kp}")
+
+    if not force and (max_kp is None or max_kp < effective_threshold):
+        if not dry_run:
+            record = _state_record(
+                date, "skipped_low_kp", effective_threshold, max_kp=max_kp
+            )
+            save_state(state_file, {**state, date_key: record})
+        return NightUploadResult(status="skipped_low_kp", max_kp=max_kp)
+
+    metadata = MetadataManager().generate_metadata(
+        video_file=video,
+        kp_index=max_kp,
+        date=datetime.combine(date, datetime.min.time()),
+    )
+
+    if dry_run:
+        return NightUploadResult(status="dry_run", max_kp=max_kp, metadata=metadata)
+
+    try:
+        uploader = YouTubeUploader()
+        upload_result = uploader.upload_video(
+            video_file=video,
+            title=metadata["title"],
+            description=metadata["description"],
+            tags=metadata["tags"],
+            privacy_status=metadata["privacy_status"],
+            category_id=metadata["category_id"],
+        )
+    except Exception as exc:
+        logger.error(f"Night upload failed for {date}: {exc}")
+        record = _state_record(
+            date, "failed", effective_threshold, max_kp=max_kp, error=str(exc)
+        )
+        save_state(state_file, {**state, date_key: record})
+        return NightUploadResult(status="failed", max_kp=max_kp, error=str(exc))
+
+    record = _state_record(
+        date,
+        "uploaded",
+        effective_threshold,
+        max_kp=max_kp,
+        video_id=upload_result["video_id"],
+        url=upload_result["video_url"],
+    )
+    save_state(state_file, {**state, date_key: record})
+    return NightUploadResult(
+        status="uploaded",
+        max_kp=max_kp,
+        video_id=upload_result["video_id"],
+        url=upload_result["video_url"],
+    )
