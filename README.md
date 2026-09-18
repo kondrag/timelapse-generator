@@ -176,6 +176,32 @@ cp ~/Downloads/client_secret_*.json youtube_credentials.json
 timelapse upload --dry-run your_video.mp4
 ```
 
+### 3. Automatic Night Uploads
+
+`AuroraCam_<date>_2560x1440.mp4` videos are uploaded to YouTube automatically
+when the planetary Kp index reached 4.0 at some point during the night window
+(nautical dusk the evening before through nautical dawn, Gilman WI):
+
+```bash
+# One-off / manual (any date, YYYYMMDD or YYYY-MM-DD)
+uv run timelapse upload-night 20260916
+uv run timelapse upload-night --dry-run          # decide, don't upload
+uv run timelapse upload-night --force 20260916   # bypass the Kp gate
+
+# Install the 30-minute poll (as the user that owns the archive)
+crontab -e
+# */30 * * * * /path/to/timelapse-generator/scripts/upload_night_cron.sh
+```
+
+The first run must happen interactively once so the OAuth browser flow can
+complete; the token is then cached at
+`~/.cache/timelapse_generator/youtube_token.json` and refreshed headlessly by
+later runs. Per-date state lives in
+`~/.local/state/timelapse-generator/night_uploads.json`: uploaded videos are
+never uploaded twice, Kp-skipped dates need `--force`, and failed uploads are
+retried by the next poll. Set `youtube.night_upload.enabled: false` in
+`config.yaml` to turn the poll into a no-op.
+
 ## Video Backends
 
 The timelapse generator supports multiple video encoding backends for different performance and quality needs.

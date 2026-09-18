@@ -1,0 +1,9 @@
+{% if kp_index and kp_index >= 7 %}
+["timelapse", "astrophotography", "night sky", "aurora", "northernlights", "severe storm", "space weather"]
+{% elif kp_index and kp_index >= 5 %}
+["timelapse", "astrophotography", "night sky", "aurora", "northernlights", "geomagnetic storm", "space weather"]
+{% elif kp_index and kp_index >= 4 %}
+["timelapse", "astrophotography", "night sky", "aurora", "northernlights", "active conditions", "space weather"]
+{% else %}
+["timelapse", "astrophotography", "night sky", "stars", "milky way"]
+{% endif %}
