@@ -57,9 +57,13 @@ def test_repo_config_yaml_has_night_upload():
 
 
 NOAA_SAMPLE = [
-    ["time_tag", "Kp", "a_running", "station_count"],
-    ["2026-09-06 00:00:00.000", "1.33", "6", "8"],
-    ["2026-09-06 03:00:00.000", "2.67", "12", "8"],
+    {"time_tag": "2026-09-06T00:00:00", "Kp": 1.33, "a_running": 6, "station_count": 8},
+    {
+        "time_tag": "2026-09-06T03:00:00",
+        "Kp": 2.67,
+        "a_running": 12,
+        "station_count": 8,
+    },
 ]
 
 
@@ -106,11 +110,10 @@ def test_load_kp_series_corrupt_json_raises(tmp_path):
         load_kp_series(p)
 
 
-def test_load_kp_series_short_file_raises(tmp_path):
+def test_load_kp_series_empty_array_yields_empty_series(tmp_path):
     p = tmp_path / "k.json"
-    p.write_text(json.dumps([["time_tag", "Kp", "a_running", "station_count"]]))
-    with pytest.raises(KpDataError):
-        load_kp_series(p)
+    p.write_text(json.dumps([]))
+    assert load_kp_series(p) == []
 
 
 def test_load_kp_series_non_numeric_kp_raises(tmp_path):
@@ -118,8 +121,12 @@ def test_load_kp_series_non_numeric_kp_raises(tmp_path):
     p.write_text(
         json.dumps(
             [
-                ["time_tag", "Kp", "a_running", "station_count"],
-                ["2026-09-06 00:00:00.000", "quiet", "6", "8"],
+                {
+                    "time_tag": "2026-09-06T00:00:00",
+                    "Kp": "quiet",
+                    "a_running": 6,
+                    "station_count": 8,
+                }
             ]
         )
     )
@@ -132,8 +139,12 @@ def test_load_kp_series_bad_timestamp_raises(tmp_path):
     p.write_text(
         json.dumps(
             [
-                ["time_tag", "Kp", "a_running", "station_count"],
-                ["2026-09-06T00:00:00Z", "2.0", "6", "8"],
+                {
+                    "time_tag": "2026-09-06T00:00:00Z",
+                    "Kp": 2.0,
+                    "a_running": 6,
+                    "station_count": 8,
+                }
             ]
         )
     )
@@ -141,25 +152,16 @@ def test_load_kp_series_bad_timestamp_raises(tmp_path):
         load_kp_series(p)
 
 
-def test_load_kp_series_short_row_raises(tmp_path):
+def test_load_kp_series_missing_kp_key_raises(tmp_path):
     p = tmp_path / "k.json"
-    p.write_text(
-        json.dumps(
-            [
-                ["time_tag", "Kp", "a_running", "station_count"],
-                ["2026-09-06 00:00:00.000"],
-            ]
-        )
-    )
+    p.write_text(json.dumps([{"time_tag": "2026-09-06T00:00:00"}]))
     with pytest.raises(KpDataError):
         load_kp_series(p)
 
 
-def test_load_kp_series_bad_header_raises(tmp_path):
+def test_load_kp_series_non_object_element_raises(tmp_path):
     p = tmp_path / "k.json"
-    p.write_text(
-        json.dumps([["timestamp", "value"], ["2026-09-06 00:00:00.000", "2.0"]])
-    )
+    p.write_text(json.dumps([["2026-09-06T00:00:00", 2.0]]))
     with pytest.raises(KpDataError):
         load_kp_series(p)
 
@@ -327,11 +329,18 @@ def make_archive(archive, day=DAY, samples=None, kp_bytes=None):
     day_dir.mkdir(parents=True)
     video = day_dir / f"AuroraCam_{day.strftime('%Y%m%d')}_2560x1440.mp4"
     video.write_bytes(b"fake video bytes")
-    rows = [["time_tag", "Kp", "a_running", "station_count"]]
+    rows = []
     for when, kp in (
         samples if samples is not None else [(IN_WINDOW, 5.33), (OUT_OF_WINDOW, 1.0)]
     ):
-        rows.append([when.strftime("%Y-%m-%d %H:%M:%S.%f"), str(kp), "8", "8"])
+        rows.append(
+            {
+                "time_tag": when.strftime("%Y-%m-%dT%H:%M:%S"),
+                "Kp": kp,
+                "a_running": 8,
+                "station_count": 8,
+            }
+        )
     (day_dir / f"k-index_{day.strftime('%Y%m%d')}.json").write_text(
         kp_bytes or json.dumps(rows)
     )
@@ -439,7 +448,7 @@ def test_missing_kp_json_is_quiet_no_op(configured):
 
 def test_malformed_kp_fails_then_force_uploads(configured, monkeypatch):
     archive, state_file = configured
-    make_archive(archive, kp_bytes=json.dumps([["time_tag", "Kp"], ["oops"]]))
+    make_archive(archive, kp_bytes=json.dumps([{"time_tag": "oops"}]))
     monkeypatch.setattr(night_upload, "YouTubeUploader", FakeUploader)
 
     failed = upload_night_for_date(DAY)

@@ -24,7 +24,7 @@ from .uploader import YouTubeUploader
 logger = get_logger(__name__)
 
 HIGH_RES_SUFFIX = "_2560x1440.mp4"
-NOAA_TIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
+NOAA_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
 class KpDataError(Exception):
@@ -51,9 +51,12 @@ def find_night_video(date: date, archive_dir: Path) -> Path:
 def load_kp_series(path: Path) -> List[Tuple[datetime, float]]:
     """Parse a NOAA planetary K index product file into (utc_time, kp) pairs.
 
-    Element 0 is the header row ["time_tag", "Kp", "a_running", "station_count"];
-    subsequent rows carry UTC timestamps formatted %Y-%m-%d %H:%M:%S.%f and
-    decimal Kp values. Raises KpDataError on missing/short/malformed data.
+    The product served by services.swpc.noaa.gov (and archived by
+    scripts/fetch_spaceweather.sh as k-index_<YYYYMMDD>.json) is a JSON array
+    of sample objects:
+        [{"time_tag": "2026-09-09T00:00:00", "Kp": 2.67, "a_running": 12,
+          "station_count": 8}, ...]
+    with UTC time_tag values. Raises KpDataError on missing/malformed data.
     """
     try:
         rows = json.loads(Path(path).read_text())
@@ -62,27 +65,21 @@ def load_kp_series(path: Path) -> List[Tuple[datetime, float]]:
     except (json.JSONDecodeError, OSError) as exc:
         raise KpDataError(f"unreadable Kp file {path}: {exc}") from exc
 
-    if not isinstance(rows, list) or len(rows) < 2:
-        raise KpDataError(
-            f"Kp file {path} is not a JSON array with a header and samples"
-        )
-
-    header = rows[0]
-    if not (isinstance(header, list) and "time_tag" in header and "Kp" in header):
-        raise KpDataError(f"Kp file {path} has unexpected header row: {header!r}")
+    if not isinstance(rows, list):
+        raise KpDataError(f"Kp file {path} is not a JSON array of Kp samples")
 
     series: List[Tuple[datetime, float]] = []
-    for row in rows[1:]:
-        if not isinstance(row, list) or len(row) < 2:
-            raise KpDataError(f"Kp file {path} has short row: {row!r}")
+    for row in rows:
+        if not isinstance(row, dict) or "time_tag" not in row or "Kp" not in row:
+            raise KpDataError(f"Kp file {path} has malformed sample: {row!r}")
         try:
-            when = datetime.strptime(str(row[0]), NOAA_TIME_FORMAT).replace(
+            when = datetime.strptime(str(row["time_tag"]), NOAA_TIME_FORMAT).replace(
                 tzinfo=timezone.utc
             )
-            kp = float(row[1])
+            kp = float(row["Kp"])
         except (ValueError, TypeError) as exc:
             raise KpDataError(
-                f"Kp file {path} has malformed row {row!r}: {exc}"
+                f"Kp file {path} has malformed sample {row!r}: {exc}"
             ) from exc
         series.append((when, kp))
     return series
