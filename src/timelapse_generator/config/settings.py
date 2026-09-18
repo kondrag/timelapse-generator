@@ -74,6 +74,29 @@ class WeatherSettings(BaseModel):
     retry_delay: int = Field(default=5, ge=1, le=60, description="Delay between retries in seconds")
 
 
+class NightUploadSettings(BaseModel):
+    """Automatic nightly high-res YouTube upload settings."""
+
+    enabled: bool = Field(default=True, description="Enable automatic night uploads")
+    kp_threshold: float = Field(
+        default=4.0,
+        ge=0.0,
+        le=9.0,
+        description="Minimum max-Kp required during the night window",
+    )
+    archive_dir: Path = Field(
+        default=Path("/var/local/timelapse"),
+        description="Timelapse archive root containing <YYYYMMDD> directories",
+    )
+    state_file: Path = Field(
+        default=Path("~/.local/state/timelapse-generator/night_uploads.json"),
+        description="Per-date upload state JSON (expanded at use)",
+    )
+    latitude: float = Field(default=45.1666, ge=-90.0, le=90.0, description="Observer latitude")
+    longitude: float = Field(default=-90.8076, ge=-180.0, le=180.0, description="Observer longitude")
+    timezone: str = Field(default="America/Chicago", description="Observer IANA timezone name")
+
+
 class YouTubeSettings(BaseModel):
     """YouTube upload settings."""
 
@@ -85,6 +108,11 @@ class YouTubeSettings(BaseModel):
     )
     category_id: str = Field(default="22", description="YouTube video category ID")
     tags: List[str] = Field(default_factory=lambda: ["timelapse", "astrophotography", "night sky"], description="Default video tags")
+
+    night_upload: NightUploadSettings = Field(
+        default_factory=NightUploadSettings,
+        description="Automatic night upload settings",
+    )
 
     @validator('category_id')
     def validate_category_id(cls, v):
