@@ -1,8 +1,9 @@
 """Tests for automatic night high-res YouTube uploads."""
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -160,3 +161,71 @@ def test_load_kp_series_bad_header_raises(tmp_path):
     )
     with pytest.raises(KpDataError):
         load_kp_series(p)
+
+
+from timelapse_generator.youtube.night_upload import max_kp_in_window, night_window
+
+
+def test_night_window_september_ground_truth():
+    # Ground truth from tests/test_sun.py: nautical dusk 2026-09-06 was 20:36
+    # and nautical dawn 2026-09-07 was 05:26 America/Chicago (CDT = UTC-5).
+    start, end = night_window(date(2026, 9, 7))
+    assert start.tzinfo == timezone.utc and end.tzinfo == timezone.utc
+    assert (start.hour, start.minute) == (1, 36)
+    assert start.day == 7  # dusk on 9/6 20:36 CDT is already 9/7 in UTC
+    assert (end.hour, end.minute) == (10, 26)
+    assert start < end
+
+
+def test_night_window_winter_longer_than_summer():
+    summer_start, summer_end = night_window(date(2026, 6, 21))
+    winter_start, winter_end = night_window(date(2026, 12, 21))
+    assert (winter_end - winter_start) > (summer_end - summer_start)
+
+
+def test_night_window_covers_dst_spring_forward():
+    # US DST 2026 starts Sunday 2026-03-08. The window for date 3/8 runs from
+    # dusk on 3/7 (CST, UTC-6) to dawn on 3/8 (CDT, UTC-5). night_window returns
+    # UTC, so offsets are asserted after converting back to local time.
+    start, end = night_window(date(2026, 3, 8))
+    local = ZoneInfo("America/Chicago")
+    assert start.astimezone(local).utcoffset() == timedelta(hours=-6)
+    assert end.astimezone(local).utcoffset() == timedelta(hours=-5)
+    assert start < end
+
+
+def test_night_window_honors_observer_overrides():
+    start_default, end_default = night_window(date(2026, 9, 7))
+    start_far, _ = night_window(
+        date(2026, 9, 7), latitude=-41.3, longitude=174.8, tz_name="Pacific/Auckland"
+    )
+    assert start_far != start_default  # a different observer sees a different night
+
+
+def test_max_kp_in_window_inclusive_edges():
+    window = (
+        datetime(2026, 9, 7, 10, 0, tzinfo=timezone.utc),
+        datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+    )
+    series = [
+        (datetime(2026, 9, 7, 9, 59, tzinfo=timezone.utc), 9.0),  # just outside
+        (datetime(2026, 9, 7, 10, 0, tzinfo=timezone.utc), 3.0),  # at start
+        (datetime(2026, 9, 7, 11, 0, tzinfo=timezone.utc), 2.5),
+        (datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc), 4.0),  # at end
+        (datetime(2026, 9, 7, 12, 1, tzinfo=timezone.utc), 1.0),  # just outside
+    ]
+    assert max_kp_in_window(series, window) == 4.0
+
+
+def test_max_kp_in_window_no_samples_returns_none():
+    window = (
+        datetime(2026, 9, 7, 10, 0, tzinfo=timezone.utc),
+        datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc),
+    )
+    assert max_kp_in_window([], window) is None
+    assert (
+        max_kp_in_window(
+            [(datetime(2026, 9, 7, 13, 0, tzinfo=timezone.utc), 5.0)], window
+        )
+        is None
+    )

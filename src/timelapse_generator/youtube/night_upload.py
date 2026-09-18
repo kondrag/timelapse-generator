@@ -86,3 +86,41 @@ def load_kp_series(path: Path) -> List[Tuple[datetime, float]]:
             ) from exc
         series.append((when, kp))
     return series
+
+
+def night_window(
+    date: date,
+    latitude: float = 45.1666,
+    longitude: float = -90.8076,
+    tz_name: str = "America/Chicago",
+) -> Tuple[datetime, datetime]:
+    """Nautical dusk on date-1 through nautical dawn on date, as UTC datetimes.
+
+    Mirrors scripts/sun.py: same Depression.NAUTICAL and observer convention.
+    """
+    location = LocationInfo(
+        "Observer", "", timezone=tz_name, latitude=latitude, longitude=longitude
+    )
+    dusk = sun(
+        location.observer,
+        date=date - timedelta(days=1),
+        tzinfo=location.timezone,
+        dawn_dusk_depression=Depression.NAUTICAL,
+    )["dusk"]
+    dawn = sun(
+        location.observer,
+        date=date,
+        tzinfo=location.timezone,
+        dawn_dusk_depression=Depression.NAUTICAL,
+    )["dawn"]
+    return dusk.astimezone(timezone.utc), dawn.astimezone(timezone.utc)
+
+
+def max_kp_in_window(
+    series: List[Tuple[datetime, float]],
+    window: Tuple[datetime, datetime],
+) -> Optional[float]:
+    """Max Kp among samples with window_start <= time <= window_end; None if none."""
+    start, end = window
+    inside = [kp for when, kp in series if start <= when <= end]
+    return max(inside) if inside else None
