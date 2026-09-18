@@ -124,3 +124,54 @@ def max_kp_in_window(
     start, end = window
     inside = [kp for when, kp in series if start <= when <= end]
     return max(inside) if inside else None
+
+
+@dataclass
+class NightUploadResult:
+    """Outcome of one upload_night_for_date run."""
+
+    status: str  # uploaded|skipped_low_kp|failed|already_done|no_op|dry_run|disabled
+    max_kp: Optional[float] = None
+    video_id: Optional[str] = None
+    url: Optional[str] = None
+    error: Optional[str] = None
+    reason: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+def load_state(state_file: Path) -> Dict[str, Dict[str, Any]]:
+    """Load the per-date upload state; {} when absent. Corrupt JSON raises."""
+    try:
+        return json.loads(Path(state_file).read_text())
+    except FileNotFoundError:
+        return {}
+
+
+def save_state(state_file: Path, state: Dict[str, Dict[str, Any]]) -> None:
+    """Atomically persist the state (temp file + os.replace)."""
+    state_file = Path(state_file)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = state_file.parent / f".{state_file.name}.tmp"
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    os.replace(tmp, state_file)
+
+
+def _state_record(
+    date: date,
+    status: str,
+    threshold: float,
+    max_kp: Optional[float] = None,
+    video_id: Optional[str] = None,
+    url: Optional[str] = None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build one per-date state entry (spec JSON shape)."""
+    return {
+        "status": status,
+        "video_id": video_id,
+        "url": url,
+        "max_kp": max_kp,
+        "threshold": threshold,
+        "error": error,
+        "timestamp": datetime.now().astimezone().isoformat(),
+    }

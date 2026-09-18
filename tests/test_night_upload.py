@@ -12,6 +12,7 @@ from timelapse_generator.config.settings import (
     Settings,
     settings,
 )
+from timelapse_generator.youtube import night_upload
 from timelapse_generator.youtube.night_upload import (
     KpDataError,
     find_night_video,
@@ -229,3 +230,52 @@ def test_max_kp_in_window_no_samples_returns_none():
         )
         is None
     )
+
+
+from timelapse_generator.youtube.night_upload import (
+    NightUploadResult,
+    load_state,
+    save_state,
+)
+
+
+def test_load_state_missing_file_returns_empty(tmp_path):
+    assert load_state(tmp_path / "state.json") == {}
+
+
+def test_state_roundtrip(tmp_path):
+    state_file = tmp_path / "nested" / "state.json"
+    state = {"20260916": {"status": "uploaded", "video_id": "abc123"}}
+    save_state(state_file, state)
+    assert load_state(state_file) == state
+
+
+def test_save_state_is_atomic_no_temp_leftovers(tmp_path):
+    state_file = tmp_path / "state.json"
+    save_state(state_file, {})
+    save_state(state_file, {"20260916": {"status": "failed"}})
+    assert list(tmp_path.iterdir()) == [state_file]
+
+
+def test_state_record_shape():
+    record = night_upload._state_record(
+        date(2026, 9, 16), "uploaded", 4.0, max_kp=5.33, video_id="abc", url="u"
+    )
+    assert record["status"] == "uploaded"
+    assert record["video_id"] == "abc"
+    assert record["url"] == "u"
+    assert record["max_kp"] == 5.33
+    assert record["threshold"] == 4.0
+    assert record["error"] is None
+    assert datetime.fromisoformat(record["timestamp"]).utcoffset() is not None
+
+
+def test_night_upload_result_defaults():
+    r = NightUploadResult(status="no_op")
+    assert r.status == "no_op"
+    assert r.max_kp is None
+    assert r.video_id is None
+    assert r.url is None
+    assert r.error is None
+    assert r.reason is None
+    assert r.metadata is None
