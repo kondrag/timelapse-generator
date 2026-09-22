@@ -15,8 +15,8 @@ log "TIMELAPSE_DIR is $TIMELAPSE_DIR"
 
 
 cleanup_old_dirs() {
-    echo "Removing directories older than 30 days from $TIMELAPSE_DIR" >> $LOGFILE
-    find $TIMELAPSE_DIR -type d -mtime +30 -print -exec rm -rf {} + >> $LOGFILE
+    echo "Removing directories older than 35 days from $TIMELAPSE_DIR" >> $LOGFILE
+    find $TIMELAPSE_DIR -type d -mtime +35 -print -exec rm -rf {} + >> $LOGFILE
 }
 
 VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}

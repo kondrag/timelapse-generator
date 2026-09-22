@@ -6,6 +6,11 @@
 # is not. Run from cron every 5 minutes (as greg; /tmp/weewx/aurora is
 # weewx:weewx 775 and greg is in the weewx group).
 #
+# Also stages a 35-day date-named tree (d/<YYYYMMDD> -> archive dir) for
+# the Timelapses calendar page, which the skin scanner reads under the
+# same /cam alias, plus five *_latest.* links refreshed every run for
+# the gallery's "Latest" card.
+#
 # Safety: a destination file is ONLY replaced when absent. The daily
 # pipeline publishes with `cp` BEFORE archiving with `mv`, so an existing
 # destination is always the pipeline's own real file — linking under it
@@ -82,13 +87,59 @@ for OFFSET in 6 5 4 3 2 1 0; do
     link_if_absent "${ARC}/SpaceWeather_${D}.gif"           "${WEEWX_TIMELAPSE_DIR}/SpaceWeather_${DAY_NAME}.gif"        "${MIN_AGE}"
 done
 
+# Date-named tree for the Timelapses calendar: d/<YYYYMMDD> -> archive dir.
+# No today-age gate needed here: nothing writes *through* these links (the
+# pipeline only publishes weekday-named real files at the staging root),
+# and the skin scanner lists a day's media only once the completed files
+# have been mv'd to the top of the archive dir.
+DATE_LINK_DIR="${WEEWX_TIMELAPSE_DIR}/d"
+mkdir -p "${DATE_LINK_DIR}" 2>/dev/null || {
+    log "link_archive: cannot create ${DATE_LINK_DIR}"
+    exit 1
+}
+
+for OFFSET in $(seq 34 -1 0); do
+    D=$(date -d "-${OFFSET} days" +%Y%m%d)
+    ARC="${TIMELAPSE_DIR}/${D}"
+    [ -d "${ARC}" ] && ln -sfn "${ARC}" "${DATE_LINK_DIR}/${D}"
+done
+
+# link_latest <DEST> <SRC_PATTERN>
+# Refreshed EVERY run (unlike link_if_absent): walks back through the
+# archive until a day carries the asset, then points <DEST> at it. The
+# gallery's "Latest" card reads these instead of the weekday-named
+# rotation, which gilman-aurora-archive requires to stay backfill-only.
+# The *_latest.* names are staged only by this script, so there is never
+# a real pipeline file to protect, and no today-age gate is needed (the
+# cp-then-mv publish means an archive path exists only once complete).
+link_latest() {
+    local DEST=$1 PAT=$2 OFFSET D SRC
+    for OFFSET in $(seq 0 49); do
+        D=$(date -d "-${OFFSET} days" +%Y%m%d)
+        SRC=$(printf "${PAT}" "${D}" "${D}")
+        if [ -e "${SRC}" ]; then
+            ln -sfn "${SRC}" "${DEST}" \
+                && log "link_archive: latest ${DEST} -> ${SRC}"
+            return 0
+        fi
+    done
+    log "link_archive: latest ${DEST}: no archive match"
+}
+
+link_latest "${WEEWX_TIMELAPSE_DIR}/AuroraCam_latest.mp4"           "${TIMELAPSE_DIR}/%s/AuroraCam_%s_640x360.mp4"
+link_latest "${WEEWX_TIMELAPSE_DIR}/AuroraCam_latest.thumbnail.jpg" "${TIMELAPSE_DIR}/%s/AuroraCam_%s.thumbnail.jpg"
+link_latest "${WEEWX_TIMELAPSE_DIR}/CloudCam_latest.mp4"            "${TIMELAPSE_DIR}/%s/CloudCam_%s_640x360.mp4"
+link_latest "${WEEWX_TIMELAPSE_DIR}/CloudCam_latest.thumbnail.jpg"  "${TIMELAPSE_DIR}/%s/CloudCam_%s.thumbnail.jpg"
+link_latest "${WEEWX_TIMELAPSE_DIR}/SpaceWeather_latest.gif"        "${TIMELAPSE_DIR}/%s/SpaceWeather_%s.gif"
+
 # Prune day-name media symlinks whose archive target has rotated away.
 shopt -s nullglob
 for LINK in "${WEEWX_TIMELAPSE_DIR}"/AuroraCam_*.mp4 \
             "${WEEWX_TIMELAPSE_DIR}"/AuroraCam_*.thumbnail.jpg \
             "${WEEWX_TIMELAPSE_DIR}"/CloudCam_*.mp4 \
             "${WEEWX_TIMELAPSE_DIR}"/CloudCam_*.thumbnail.jpg \
-            "${WEEWX_TIMELAPSE_DIR}"/SpaceWeather_*.gif; do
+            "${WEEWX_TIMELAPSE_DIR}"/SpaceWeather_*.gif \
+            "${DATE_LINK_DIR}"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]; do
     [ -L "${LINK}" ] || continue
     [ -e "${LINK}" ] || { rm -f "${LINK}" && log "link_archive: pruned broken ${LINK}"; }
 done
