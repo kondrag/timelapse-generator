@@ -570,6 +570,20 @@ test_link_archive_covers_42_day_calendar_window() {
         "$(readlink "$SBX/wx/aurora/d/$D41" 2>/dev/null)|$(readlink "$SBX/wx/aurora/d/$D35" 2>/dev/null)|$COUNT"
 }
 
+test_link_archive_synthesizes_calendar_window_thumbs() {
+    sandbox
+    mk_fakebin
+    local D10
+    D10=$(date -d "-10 days" +%Y%m%d)
+    mkdir -p "$SBX/tl/$D10" "$SBX/wx/aurora"
+    printf V > "$SBX/tl/$D10/AuroraCam_${D10}_640x360.mp4"
+    printf V > "$SBX/tl/$D10/CloudCam_${D10}_640x360.mp4"
+    PATH="$FAKEBIN:$PATH" LOGFILE="$SBX/log" TIMELAPSE_DIR="$SBX/tl" \
+        WEEWX_DIR="$SBX/wx" bash scripts/link_archive_to_site.sh >>"$SBX/out" 2>&1
+    check "calendar-window day gets synthesized thumbnails" "yes|yes" \
+        "$([ -f "$SBX/tl/$D10/AuroraCam_${D10}.thumbnail.jpg" ] && echo yes || echo no)|$([ -f "$SBX/tl/$D10/CloudCam_${D10}.thumbnail.jpg" ] && echo yes || echo no)"
+}
+
 test_timelapse_night_does_not_write_through_stale_symlink() {
     sandbox
     win_bounds

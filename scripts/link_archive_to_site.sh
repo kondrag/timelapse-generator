@@ -110,6 +110,11 @@ mkdir -p "${DATE_LINK_DIR}" 2>/dev/null || {
 for OFFSET in $(seq 41 -1 0); do
     D=$(date -d "-${OFFSET} days" +%Y%m%d)
     ARC="${TIMELAPSE_DIR}/${D}"
+    # Days archived before thumbnail-archiving began (and any gap) get a
+    # thumb synthesized from the 640x360, so calendar cells older than the
+    # 7-day weekday window still show their screen capture.
+    synth_thumb_if_missing AuroraCam "${D}" "${ARC}"
+    synth_thumb_if_missing CloudCam  "${D}" "${ARC}"
     [ -d "${ARC}" ] && ln -sfn "${ARC}" "${DATE_LINK_DIR}/${D}"
 done
 
