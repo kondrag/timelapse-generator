@@ -10,6 +10,13 @@
 : ${WEEWX_DIR:=/tmp/weewx}
 WEEWX_TIMELAPSE_DIR=${WEEWX_DIR}/aurora
 
+# Archive retention: timelapse.sh's cleanup_old_dirs prunes day dirs with
+# -mtime +ARCHIVE_RETENTION_DAYS (i.e. deletes at retention+1 days of age).
+# Keep in sync with the calendar's 42-day d/ linking window
+# (link_archive_to_site.sh seq 41 -1 0): the oldest linked day is 41 days
+# old, so 41 is the largest value that never prunes a linked day.
+: ${ARCHIVE_RETENTION_DAYS:=41}
+
 # Date variables
 TODAY=$(date +%Y%m%d)
 DAY=$(date +%A)

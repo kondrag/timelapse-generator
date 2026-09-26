@@ -52,6 +52,13 @@ test_env_overrides_reach_archive_dir() {
     check "ARCHIVE_DIR derives from overridden TIMELAPSE_DIR" "$SBX/tl/$(date +%Y%m%d)" "$OUT"
 }
 
+test_archive_retention_default_and_override() {
+    local OUT OUT2
+    OUT=$(bash -c 'source scripts/common_env.sh; echo "${ARCHIVE_RETENTION_DAYS}"')
+    OUT2=$(ARCHIVE_RETENTION_DAYS=10 bash -c 'source scripts/common_env.sh; echo "${ARCHIVE_RETENTION_DAYS}"')
+    check "archive retention defaults to 41, env-overridable" "41|10" "$OUT|$OUT2"
+}
+
 # ---------------------------------------------------------------- self_heal_move.sh
 # Fixture dates are fixed so sun.py output is deterministic:
 #   Sep 6 2026 dusk=20:36  Sep 7 2026 dawn=05:26  Sep 7 2026 dusk=20:34
@@ -489,6 +496,153 @@ test_deploy_refuses_default_dest_without_root() {
     [ "$RC" -ne 0 ] && FAILED=y || FAILED=n
     grep -qi 'root' <<<"$OUT" && REFUSED=y || REFUSED=n
     check "deploy refuses default dest as non-root" "y|y" "$FAILED|$REFUSED"
+}
+
+# ------------------------------------------------- stale symlink corruption
+# Regression tests for the Sep 2026 calendar corruption: weekday staging
+# links went stale (link_if_absent skipped live symlinks) and the daily
+# publishers' plain cp/convert wrote THROUGH them, overwriting the archive
+# originals so calendar days showed content from weeks later.
+
+mk_stale_fixture() {  # OLD content 3 days back, NEW today, stale weekday links
+    TODAY=$(date +%Y%m%d)
+    DAY=$(date +%A)
+    D3=$(date -d "-3 days" +%Y%m%d)
+    mkdir -p "$SBX/tl/$TODAY" "$SBX/tl/$D3" "$SBX/wx/aurora"
+    for CAM in AuroraCam CloudCam; do
+        printf NEW > "$SBX/tl/$TODAY/${CAM}_${TODAY}_640x360.mp4"
+        printf NEW > "$SBX/tl/$TODAY/${CAM}_${TODAY}.thumbnail.jpg"
+        printf OLD > "$SBX/tl/$D3/${CAM}_${D3}_640x360.mp4"
+        printf OLD > "$SBX/tl/$D3/${CAM}_${D3}.thumbnail.jpg"
+        ln -s "$SBX/tl/$D3/${CAM}_${D3}_640x360.mp4"   "$SBX/wx/aurora/${CAM}_${DAY}.mp4"
+        ln -s "$SBX/tl/$D3/${CAM}_${D3}.thumbnail.jpg" "$SBX/wx/aurora/${CAM}_${DAY}.thumbnail.jpg"
+    done
+    touch -d "3 hours ago" "$SBX/tl/$TODAY"/*
+}
+
+run_link_archive() {
+    LOGFILE="$SBX/log" TIMELAPSE_DIR="$SBX/tl" WEEWX_DIR="$SBX/wx" \
+        bash scripts/link_archive_to_site.sh >>"$SBX/out" 2>&1
+}
+
+test_link_archive_repoints_stale_weekday_symlink() {
+    sandbox
+    mk_stale_fixture
+    run_link_archive
+    check "stale weekday symlink re-pointed to current archive day" \
+        "$SBX/tl/$TODAY/AuroraCam_${TODAY}_640x360.mp4" \
+        "$(readlink "$SBX/wx/aurora/AuroraCam_${DAY}.mp4")"
+}
+
+test_link_archive_never_replaces_real_weekday_file() {
+    sandbox
+    mk_stale_fixture
+    rm "$SBX/wx/aurora/AuroraCam_${DAY}.mp4"
+    printf PIPELINE > "$SBX/wx/aurora/AuroraCam_${DAY}.mp4"
+    run_link_archive
+    check "real pipeline weekday file left alone (cp-then-mv window)" \
+        "PIPELINE|no" \
+        "$(cat "$SBX/wx/aurora/AuroraCam_${DAY}.mp4")|$([ -L "$SBX/wx/aurora/AuroraCam_${DAY}.mp4" ] && echo yes || echo no)"
+}
+
+test_link_archive_age_gate_blocks_fresh_today_repoint() {
+    sandbox
+    mk_stale_fixture
+    touch "$SBX/tl/$TODAY/AuroraCam_${TODAY}_640x360.mp4"   # just published
+    run_link_archive
+    check "fresh today file not linked through (still inside publish window)" \
+        "$SBX/tl/$D3/AuroraCam_${D3}_640x360.mp4" \
+        "$(readlink "$SBX/wx/aurora/AuroraCam_${DAY}.mp4")"
+}
+
+test_link_archive_covers_42_day_calendar_window() {
+    sandbox
+    local OFFSET D41 D35 COUNT
+    for OFFSET in $(seq 41 -1 0); do
+        mkdir -p "$SBX/tl/$(date -d "-${OFFSET} days" +%Y%m%d)"
+    done
+    run_link_archive
+    D41=$(date -d "-41 days" +%Y%m%d)
+    D35=$(date -d "-35 days" +%Y%m%d)
+    COUNT=$(ls -1 "$SBX/wx/aurora/d" 2>/dev/null | wc -l)
+    check "d/ tree spans the full 42-day calendar window" \
+        "$SBX/tl/$D41|$SBX/tl/$D35|42" \
+        "$(readlink "$SBX/wx/aurora/d/$D41" 2>/dev/null)|$(readlink "$SBX/wx/aurora/d/$D35" 2>/dev/null)|$COUNT"
+}
+
+test_timelapse_night_does_not_write_through_stale_symlink() {
+    sandbox
+    win_bounds
+    mk_fakebin
+    mk_stale_fixture
+    mkdir -p "$SBX/ftp"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    run_timelapse night
+    local STAGE_V=$SBX/wx/aurora/AuroraCam_${DAY}.mp4
+    local STAGE_T=$SBX/wx/aurora/AuroraCam_${DAY}.thumbnail.jpg
+    check "night publish: cp/convert never write through stale symlinks" \
+        "OLD|OLD|X|no|X|no" \
+        "$(cat "$SBX/tl/$D3/AuroraCam_${D3}_640x360.mp4")|$(cat "$SBX/tl/$D3/AuroraCam_${D3}.thumbnail.jpg")|$(cat "$STAGE_V")|$([ -L "$STAGE_V" ] && echo yes || echo no)|$(cat "$STAGE_T")|$([ -L "$STAGE_T" ] && echo yes || echo no)"
+}
+
+test_timelapse_day_does_not_write_through_stale_symlink() {
+    sandbox
+    win_bounds
+    mk_fakebin
+    mk_stale_fixture
+    mkdir -p "$SBX/ftp"
+    mk_jpg "$SBX/ftp" "$DAY_LO_E"
+    mk_jpg "$SBX/ftp" $((NIGHT_HI_E + 3660))   # midday thumbnail candidate
+    run_timelapse day
+    local STAGE_V=$SBX/wx/aurora/CloudCam_${DAY}.mp4
+    local STAGE_T=$SBX/wx/aurora/CloudCam_${DAY}.thumbnail.jpg
+    check "day publish: cp/convert never write through stale symlinks" \
+        "OLD|OLD|X|no|X|no" \
+        "$(cat "$SBX/tl/$D3/CloudCam_${D3}_640x360.mp4")|$(cat "$SBX/tl/$D3/CloudCam_${D3}.thumbnail.jpg")|$(cat "$STAGE_V")|$([ -L "$STAGE_V" ] && echo yes || echo no)|$(cat "$STAGE_T")|$([ -L "$STAGE_T" ] && echo yes || echo no)"
+}
+
+test_fetch_spaceweather_does_not_write_through_stale_symlink() {
+    sandbox
+    mk_stale_fixture
+    cat > "$SBX/fakewget" <<'EOF'
+#!/bin/bash
+while [ $# -gt 0 ]; do
+    if [ "$1" = "-O" ]; then printf SW-NEW > "$2"; fi
+    shift
+done
+EOF
+    chmod +x "$SBX/fakewget"
+    printf SW-OLD > "$SBX/tl/$D3/SpaceWeather_${D3}.gif"
+    ln -s "$SBX/tl/$D3/SpaceWeather_${D3}.gif" "$SBX/wx/aurora/SpaceWeather_${DAY}.gif"
+    LOGFILE="$SBX/log" TIMELAPSE_DIR="$SBX/tl" WEEWX_DIR="$SBX/wx" \
+        WGET_CMD="$SBX/fakewget" \
+        bash scripts/fetch_spaceweather.sh >>"$SBX/out" 2>&1
+    check "spaceweather publish: no write-through into stale link target" \
+        "SW-OLD|SW-NEW|no" \
+        "$(cat "$SBX/tl/$D3/SpaceWeather_${D3}.gif")|$(cat "$SBX/wx/aurora/SpaceWeather_${DAY}.gif")|$([ -L "$SBX/wx/aurora/SpaceWeather_${DAY}.gif" ] && echo yes || echo no)"
+}
+
+# ------------------------------------------------- archive retention (prune)
+
+test_timelapse_prune_keeps_dirs_within_retention_window() {
+    sandbox
+    win_bounds
+    mk_fakebin
+    mk_stale_fixture
+    mkdir -p "$SBX/ftp"
+    local D40 D45
+    D40=$(date -d "-40 days" +%Y%m%d)
+    D45=$(date -d "-45 days" +%Y%m%d)
+    mkdir -p "$SBX/tl/$D40" "$SBX/tl/$D45"
+    touch -d "40 days ago" "$SBX/tl/$D40"
+    touch -d "45 days ago" "$SBX/tl/$D45"
+    mk_jpg "$SBX/ftp" "$NIGHT_LO_E"
+    mk_jpg "$SBX/ftp" "$NIGHT_HI_E"
+    run_timelapse night
+    check "prune keeps dirs inside the retention window, removes older ones" \
+        "yes|no" \
+        "$([ -d "$SBX/tl/$D40" ] && echo yes || echo no)|$([ -d "$SBX/tl/$D45" ] && echo yes || echo no)"
 }
 
 # ---------------------------------------------------------------- run

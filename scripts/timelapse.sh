@@ -15,8 +15,8 @@ log "TIMELAPSE_DIR is $TIMELAPSE_DIR"
 
 
 cleanup_old_dirs() {
-    echo "Removing directories older than 35 days from $TIMELAPSE_DIR" >> $LOGFILE
-    find $TIMELAPSE_DIR -type d -mtime +35 -print -exec rm -rf {} + >> $LOGFILE
+    echo "Removing directories older than ${ARCHIVE_RETENTION_DAYS} days from $TIMELAPSE_DIR" >> $LOGFILE
+    find $TIMELAPSE_DIR -type d -mtime +${ARCHIVE_RETENTION_DAYS} -print -exec rm -rf {} + >> $LOGFILE
 }
 
 VAAPI_DEVICE=${VAAPI_DEVICE:-/dev/dri/renderD128}
@@ -177,10 +177,16 @@ process_day() {
         ls -al "${VIDEO_PATH}" >> $LOGFILE
         
         echo "$(date) - Copying daylight video to weewx" >> $LOGFILE
-        cp -v "${VIDEO_PATH}" "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY}.mp4" >> $LOGFILE
+        # --remove-destination: if the staging name is a stale symlink (see
+        # link_archive_to_site.sh), a plain cp would write THROUGH it and
+        # clobber the archive original it points at.
+        cp -v --remove-destination "${VIDEO_PATH}" "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY}.mp4" >> $LOGFILE
 
         if [ -f "$THUMBNAIL" ]; then
             echo "$(date) Resizing thumbnail to ${LOW_RES}..." >> $LOGFILE
+            # rm first: convert has no --remove-destination and would
+            # otherwise follow an existing symlink at the output path.
+            rm -f "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY}.thumbnail.jpg"
             convert "${THUMBNAIL}" -resize ${LOW_RES} "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY}.thumbnail.jpg"
             echo "$(date) thumbnail creation return value: $?" >> $LOGFILE
             # Persist a copy in the archive so reboots can restore it
@@ -237,10 +243,13 @@ process_night() {
         # Note: uv run command uses $OUTPUT_FILENAME relative to PWD.
         # Let's assume files are in /opt/timelapse-generator because of cd.
         
-        cp -v "${VIDEO_PATH_LOW}" "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.mp4" >> $LOGFILE
+        cp -v --remove-destination "${VIDEO_PATH_LOW}" "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.mp4" >> $LOGFILE
         
         if [ -f "$THUMBNAIL" ]; then
             echo "Resizing thumbnail to ${LOW_RES}..." >> $LOGFILE
+            # rm first: convert has no --remove-destination and would
+            # otherwise follow an existing symlink at the output path.
+            rm -f "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.thumbnail.jpg"
             convert "${THUMBNAIL}" -resize ${LOW_RES} "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY}.thumbnail.jpg"
             echo "Thumbnail creation return value: $?" >> $LOGFILE 
             # Persist a copy in the archive so reboots can restore it

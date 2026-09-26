@@ -6,15 +6,20 @@
 # is not. Run from cron every 5 minutes (as greg; /tmp/weewx/aurora is
 # weewx:weewx 775 and greg is in the weewx group).
 #
-# Also stages a 35-day date-named tree (d/<YYYYMMDD> -> archive dir) for
-# the Timelapses calendar page, which the skin scanner reads under the
+# Also stages a 42-day date-named tree (d/<YYYYMMDD> -> archive dir) for
+# the Timelapses calendar page (skin calendar_days = 42: the two windows
+# must stay in sync), which the skin scanner reads under the
 # same /cam alias, plus five *_latest.* links refreshed every run for
 # the gallery's "Latest" card.
 #
-# Safety: a destination file is ONLY replaced when absent. The daily
-# pipeline publishes with `cp` BEFORE archiving with `mv`, so an existing
-# destination is always the pipeline's own real file — linking under it
-# would let that cp write through into the archive original.
+# Safety: a destination REAL file is never replaced. The daily pipeline
+# publishes with `cp` BEFORE archiving with `mv`, so an existing real file
+# is always the pipeline's own fresh publish — linking under it would let
+# that cp write through into the archive original. A destination SYMLINK,
+# however, is re-pointed to the current archive day on every run: a stale
+# link would both freeze the 7-day window in the past and give the
+# publishers' cp/convert a path to write through into an old archive day
+# (the Sep 2026 calendar corruption).
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" > /dev/null 2>&1 && pwd )"
 source "${SCRIPT_DIR}/common_env.sh"
@@ -26,11 +31,15 @@ mkdir -p "${WEEWX_TIMELAPSE_DIR}" 2>/dev/null || {
 
 NOW_EPOCH=$(date +%s)
 
-# link_if_absent <archive_src> <staged_dest> <min_age_seconds>
-link_if_absent() {
+# refresh_weekday_link <archive_src> <staged_dest> <min_age_seconds>
+# Re-points <staged_dest> at <archive_src> when it is absent or is itself
+# a symlink; a real file is never touched.
+refresh_weekday_link() {
     local SRC=$1 DEST=$2 MIN_AGE=${3:-0}
     [ -e "${SRC}" ] || return 0          # nothing archived for this day
-    [ -e "${DEST}" ] && return 0         # pipeline's real file, or link already live
+    if [ -e "${DEST}" ] && [ ! -L "${DEST}" ]; then
+        return 0                          # pipeline's real file - never replace
+    fi
     if [ "${MIN_AGE}" -gt 0 ]; then
         # Skip freshly published files still inside the cp-then-mv window.
         local AGE=$(( NOW_EPOCH - $(stat -c %Y "${SRC}") ))
@@ -80,11 +89,11 @@ for OFFSET in 6 5 4 3 2 1 0; do
     synth_thumb_if_missing AuroraCam "${D}" "${ARC}"
     synth_thumb_if_missing CloudCam  "${D}" "${ARC}"
 
-    link_if_absent "${ARC}/AuroraCam_${D}_640x360.mp4"      "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY_NAME}.mp4"           "${MIN_AGE}"
-    link_if_absent "${ARC}/AuroraCam_${D}.thumbnail.jpg"    "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY_NAME}.thumbnail.jpg" "${MIN_AGE}"
-    link_if_absent "${ARC}/CloudCam_${D}_640x360.mp4"       "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY_NAME}.mp4"            "${MIN_AGE}"
-    link_if_absent "${ARC}/CloudCam_${D}.thumbnail.jpg"     "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY_NAME}.thumbnail.jpg"  "${MIN_AGE}"
-    link_if_absent "${ARC}/SpaceWeather_${D}.gif"           "${WEEWX_TIMELAPSE_DIR}/SpaceWeather_${DAY_NAME}.gif"        "${MIN_AGE}"
+    refresh_weekday_link "${ARC}/AuroraCam_${D}_640x360.mp4"      "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY_NAME}.mp4"           "${MIN_AGE}"
+    refresh_weekday_link "${ARC}/AuroraCam_${D}.thumbnail.jpg"    "${WEEWX_TIMELAPSE_DIR}/AuroraCam_${DAY_NAME}.thumbnail.jpg" "${MIN_AGE}"
+    refresh_weekday_link "${ARC}/CloudCam_${D}_640x360.mp4"       "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY_NAME}.mp4"            "${MIN_AGE}"
+    refresh_weekday_link "${ARC}/CloudCam_${D}.thumbnail.jpg"     "${WEEWX_TIMELAPSE_DIR}/CloudCam_${DAY_NAME}.thumbnail.jpg"  "${MIN_AGE}"
+    refresh_weekday_link "${ARC}/SpaceWeather_${D}.gif"           "${WEEWX_TIMELAPSE_DIR}/SpaceWeather_${DAY_NAME}.gif"        "${MIN_AGE}"
 done
 
 # Date-named tree for the Timelapses calendar: d/<YYYYMMDD> -> archive dir.
@@ -98,7 +107,7 @@ mkdir -p "${DATE_LINK_DIR}" 2>/dev/null || {
     exit 1
 }
 
-for OFFSET in $(seq 34 -1 0); do
+for OFFSET in $(seq 41 -1 0); do
     D=$(date -d "-${OFFSET} days" +%Y%m%d)
     ARC="${TIMELAPSE_DIR}/${D}"
     [ -d "${ARC}" ] && ln -sfn "${ARC}" "${DATE_LINK_DIR}/${D}"
